@@ -1,0 +1,6 @@
+[general]
+name=my_plugin
+qgisMinimumVersion=3.0
+description=
+version=0.1.0
+author=
