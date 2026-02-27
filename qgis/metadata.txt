@@ -1,6 +1,10 @@
 [general]
-name=my_plugin
+name=GeoEngine Cloud
 qgisMinimumVersion=3.0
-description=
+description=GeoEngine cloud processing plugin for QGIS
 version=0.1.0
-author=
+author=Nika
+email=noreply@example.com
+about=Submits processing jobs to the GeoEngine cloud backend.
+tracker=https://github.com/example/geoengine-cloud-plugin/issues
+repository=https://github.com/example/geoengine-cloud-plugin

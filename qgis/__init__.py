@@ -1,1 +1,3 @@
-# my_plugin - QGIS plugin package
+def classFactory(iface):
+    from .plugin import GeoEngineCloudPlugin
+    return GeoEngineCloudPlugin(iface)
