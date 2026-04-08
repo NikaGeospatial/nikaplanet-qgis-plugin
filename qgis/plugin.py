@@ -1,19 +1,24 @@
 from qgis.PyQt.QtWidgets import QAction, QMessageBox
-from qgis.core import QgsMessageLog, Qgis
+from qgis.core import QgsMessageLog, Qgis, QgsApplication
+from .cloud.auth import AuthManager
 from .processing.provider import GeoEngineCloudProvider
-from qgis.core import QgsApplication
 
 
 class GeoEngineCloudPlugin:
     def __init__(self, iface):
         self.iface = iface
-        self.action = None
+        self.login_action = None
+        self.auth = AuthManager()
 
     def initGui(self):
-        self.action = QAction("GeoEngine Cloud: Hello", self.iface.mainWindow())
-        self.action.triggered.connect(self.run)
-        self.iface.addToolBarIcon(self.action)
-        self.iface.addPluginToMenu("GeoEngine Cloud", self.action)
+        self.login_action = QAction("GeoEngine Cloud: Login", self.iface.mainWindow())
+        self.login_action.triggered.connect(self.login)
+        self.iface.addToolBarIcon(self.login_action)
+        self.iface.addPluginToMenu("GeoEngine Cloud", self.login_action)
+
+        self.auth.login_succeeded.connect(self._on_login_success)
+        self.auth.login_failed.connect(self._on_login_failed)
+
         self.initProcessing()
 
     def initProcessing(self):
@@ -21,16 +26,33 @@ class GeoEngineCloudPlugin:
         QgsApplication.processingRegistry().addProvider(self.provider)
 
     def unload(self):
-        self.iface.removeToolBarIcon(self.action)
-        self.iface.removePluginMenu("GeoEngine Cloud", self.action)
+        self.iface.removeToolBarIcon(self.login_action)
+        self.iface.removePluginMenu("GeoEngine Cloud", self.login_action)
 
-    def run(self):
+    def login(self):
         QgsMessageLog.logMessage(
-            "GeoEngine Cloud plugin is alive!", "GeoEngine", Qgis.Info
+            "Starting GeoEngine login…", "GeoEngine", Qgis.Info
+        )
+        self.auth.login()
+
+    def _on_login_success(self, user):
+        username = user.get("username", "Unknown")
+        email = user.get("email", "")
+        QgsMessageLog.logMessage(
+            f"Logged in as {username}", "GeoEngine", Qgis.Info
         )
         QMessageBox.information(
             self.iface.mainWindow(),
             "GeoEngine Cloud",
-            "Hello from GeoEngine Cloud plugin!\n\n"
-            "The plugin loaded successfully.",
+            f"Logged in as {username} ({email})",
+        )
+
+    def _on_login_failed(self, error):
+        QgsMessageLog.logMessage(
+            f"Login failed: {error}", "GeoEngine", Qgis.Warning
+        )
+        QMessageBox.warning(
+            self.iface.mainWindow(),
+            "GeoEngine Cloud",
+            f"Login failed:\n{error}",
         )
