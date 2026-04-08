@@ -297,9 +297,8 @@ class AuthManager(QObject):
             self.login_failed.emit(f"Token exchange failed: {exc}")
             return
 
-        import tempfile
-        dbg = os.path.join(tempfile.gettempdir(), "geoengine_login_debug.txt")
-        with open(dbg, "w") as f:
+        _dbg_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "login_debug.txt")
+        with open(_dbg_path, "w") as f:
             f.write(f"Exchange response keys: {list(tokens.keys())}\n")
             f.write(f"Has idToken: {'idToken' in tokens}\n")
             f.write(f"Has user: {'user' in tokens}\n")
