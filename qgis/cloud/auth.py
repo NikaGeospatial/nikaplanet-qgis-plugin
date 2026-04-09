@@ -36,6 +36,43 @@ _QS_REFRESH_TOKEN = _QS_PREFIX + "refresh_token"
 # Keyring loader
 # ---------------------------------------------------------------------------
 
+def _ensure_vendored_keyring_backends_imported():
+    """Register built-in KeyringBackend subclasses for the tree on sys.path.
+
+    entry_points.txt matches upstream jaraco/keyring. On some QGIS builds
+    ``importlib.metadata`` may attach ``keyring.backends`` to a different
+    distribution; importing these modules unconditionally forces registration.
+    """
+    import importlib
+
+    try:
+        importlib.import_module("keyring.backends.chainer")
+    except Exception:
+        pass
+    if sys.platform == "win32":
+        for mod in ("keyring.backends.Windows",):
+            try:
+                importlib.import_module(mod)
+            except Exception:
+                pass
+    elif sys.platform == "darwin":
+        for mod in ("keyring.backends.macOS",):
+            try:
+                importlib.import_module(mod)
+            except Exception:
+                pass
+    else:
+        for mod in (
+            "keyring.backends.SecretService",
+            "keyring.backends.libsecret",
+            "keyring.backends.kwallet",
+        ):
+            try:
+                importlib.import_module(mod)
+            except Exception:
+                pass
+
+
 def _get_keyring():
     """Try to import keyring from the bundled external/ folder, then system."""
     try:
@@ -45,6 +82,8 @@ def _get_keyring():
         if external_dir not in sys.path:
             sys.path.insert(0, external_dir)
         import keyring
+
+        _ensure_vendored_keyring_backends_imported()
         return keyring
     except Exception:
         return None
@@ -61,6 +100,9 @@ def debug_log_keyring_backends():
         )
         if external_dir not in sys.path:
             sys.path.insert(0, external_dir)
+        import keyring  # noqa: F401
+
+        _ensure_vendored_keyring_backends_imported()
         from keyring.backend import get_all_keyring
 
         rings = get_all_keyring()
