@@ -14,6 +14,7 @@ from qgis.core import (
     QgsProcessingParameterString,
 )
 
+from ..cloud.auth import AuthManager
 from ..util.settings import get_control_server_url
 
 # Map YAML input type + readonly to a QGIS parameter builder.
@@ -35,9 +36,10 @@ class RemoteAlgorithm(QgsProcessingAlgorithm):
     """A processing algorithm built dynamically from a control-server task
     definition (one entry from the ``GET /list`` response)."""
 
-    def __init__(self, task_def: Optional[dict] = None):
+    def __init__(self, task_def: Optional[dict] = None, auth: Optional[AuthManager] = None):
         super().__init__()
         self._task_def = task_def or {}
+        self._auth = auth
 
     # -- identity ----------------------------------------------------------
 
@@ -107,6 +109,10 @@ class RemoteAlgorithm(QgsProcessingAlgorithm):
         req = urllib.request.Request(
             url, data=payload, headers={"Content-Type": "application/json"},
         )
+        if self._auth:
+            token = self._auth.ensure_valid_token()
+            if token:
+                req.add_header("Authorization", f"Bearer {token}")
         try:
             with urllib.request.urlopen(req, timeout=30) as resp:
                 body = json.loads(resp.read())
@@ -121,4 +127,4 @@ class RemoteAlgorithm(QgsProcessingAlgorithm):
     # -- boilerplate -------------------------------------------------------
 
     def createInstance(self):
-        return RemoteAlgorithm(self._task_def)
+        return RemoteAlgorithm(self._task_def, self._auth)

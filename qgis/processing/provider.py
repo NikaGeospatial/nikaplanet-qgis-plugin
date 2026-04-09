@@ -7,47 +7,80 @@ from qgis.PyQt.QtGui import QIcon
 
 from .sample_algorithm import ExampleProcessingAlgorithm
 from .remote_algorithm import RemoteAlgorithm
+from ..cloud.auth import AuthManager
+from ..util.messages import PLUGIN_LOG_TAG
 from ..util.settings import get_control_server_url
-
-
-def _fetch_remote_tasks() -> list[dict]:
-    """GET /list from the control server; returns [] on failure."""
-    url = f"{get_control_server_url()}/list"
-    try:
-        with urllib.request.urlopen(url, timeout=10) as resp:
-            return json.loads(resp.read())
-    except Exception as exc:
-        QgsMessageLog.logMessage(
-            f"Could not fetch remote tasks from {url}: {exc}",
-            "GeoEngine Cloud", Qgis.Warning,
-        )
-        return []
 
 
 class GeoEngineCloudProvider(QgsProcessingProvider):
     """A container for processing algorithms we will fetch from the cloud API."""
 
+    def __init__(self, auth: AuthManager | None = None):
+        super().__init__()
+        self._auth = auth
+        self._authenticated = False
+
     def loadAlgorithms(self):
+        QgsMessageLog.logMessage(
+            f"loadAlgorithms called, authenticated={self._authenticated}",
+            PLUGIN_LOG_TAG, Qgis.Info,
+        )
         try:
             self.addAlgorithm(ExampleProcessingAlgorithm())
         except Exception as e:
             QgsMessageLog.logMessage(
                 f"Error loading sample algorithm: {e}",
-                "GeoEngine Cloud", Qgis.Warning,
+                PLUGIN_LOG_TAG, Qgis.Warning,
             )
 
-        for task_def in _fetch_remote_tasks():
+        if not self._authenticated:
+            QgsMessageLog.logMessage(
+                "Skipping remote task fetch — not authenticated yet",
+                PLUGIN_LOG_TAG, Qgis.Info,
+            )
+            return
+
+        for task_def in self._fetch_remote_tasks():
             try:
-                self.addAlgorithm(RemoteAlgorithm(task_def))
+                self.addAlgorithm(RemoteAlgorithm(task_def, self._auth))
                 QgsMessageLog.logMessage(
                     f"Loaded remote task: {task_def.get('name')}",
-                    "GeoEngine Cloud", Qgis.Info,
+                    PLUGIN_LOG_TAG, Qgis.Info,
                 )
             except Exception as e:
                 QgsMessageLog.logMessage(
                     f"Error loading remote task {task_def.get('name')}: {e}",
-                    "GeoEngine Cloud", Qgis.Warning,
+                    PLUGIN_LOG_TAG, Qgis.Warning,
                 )
+
+    def _fetch_remote_tasks(self) -> list[dict]:
+        """GET /api/workers?qgis=true from the control server."""
+        url = f"{get_control_server_url()}/api/workers?qgis=true"
+        QgsMessageLog.logMessage(f"Fetching remote tasks from {url}", PLUGIN_LOG_TAG, Qgis.Info)
+        req = urllib.request.Request(url)
+        if self._auth:
+            token = self._auth.ensure_valid_token()
+            if token:
+                req.add_header("Authorization", f"Bearer {token}")
+                QgsMessageLog.logMessage(f"Auth token attached (len={len(token)})", PLUGIN_LOG_TAG, Qgis.Info)
+            else:
+                QgsMessageLog.logMessage("No valid auth token available", PLUGIN_LOG_TAG, Qgis.Warning)
+        else:
+            QgsMessageLog.logMessage("No AuthManager configured", PLUGIN_LOG_TAG, Qgis.Warning)
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                status = resp.status
+                raw = resp.read()
+                QgsMessageLog.logMessage(f"Response status={status}, body length={len(raw)}", PLUGIN_LOG_TAG, Qgis.Info)
+                tasks = json.loads(raw)
+                QgsMessageLog.logMessage(f"Parsed {len(tasks)} remote task(s)", PLUGIN_LOG_TAG, Qgis.Info)
+                return tasks
+        except Exception as exc:
+            QgsMessageLog.logMessage(
+                f"Could not fetch remote tasks from {url}: {exc}",
+                PLUGIN_LOG_TAG, Qgis.Warning,
+            )
+            return []
 
     def id(self):
         """Return unique provider id."""

@@ -12,7 +12,12 @@ from urllib.parse import urlencode, urlparse, parse_qs
 from urllib.request import Request, urlopen
 
 from qgis.core import QgsMessageLog, QgsSettings, Qgis
-from qgis.PyQt.QtCore import QObject, pyqtSignal
+from qgis.PyQt.QtCore import QCoreApplication, QEvent, QObject, pyqtSignal, pyqtSlot
+
+from ..util.messages import PLUGIN_LOG_TAG as LOG_TAG
+
+# Wake main thread without Python QEvent subclasses (unreliable with postEvent).
+_AUTH_WAKE_MAIN = QEvent.registerEventType()
 
 BASE_URL = "https://planet.nika.eco"
 KEYRING_SERVICE = "Geoengine + plugins"
@@ -20,7 +25,6 @@ KEYRING_ID_TOKEN = "nika-id-token"
 KEYRING_REFRESH_TOKEN = "nika-refresh-token"
 PORT_RANGE = range(9004, 9100)
 LOGIN_TIMEOUT = 300  # seconds
-LOG_TAG = "GeoEngine"
 
 # QgsSettings keys (fallback when keyring is unavailable)
 _QS_PREFIX = "geoengine_cloud/"
@@ -47,6 +51,33 @@ def _get_keyring():
 
 
 _keyring = _get_keyring()
+
+
+def debug_log_keyring_backends():
+    """Print and log all discoverable keyring backends (for diagnosing 'No recommended backend')."""
+    try:
+        external_dir = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)), "external"
+        )
+        if external_dir not in sys.path:
+            sys.path.insert(0, external_dir)
+        from keyring.backend import get_all_keyring
+
+        rings = get_all_keyring()
+        print("[GeoEngine Cloud] keyring.backend.get_all_keyring():", rings, flush=True)
+        lines = [f"[{i}] {type(b).__module__}.{type(b).__qualname__}: {b!r}" for i, b in enumerate(rings)]
+        QgsMessageLog.logMessage(
+            "Keyring backends (get_all_keyring):\n" + "\n".join(lines) if lines else "Keyring backends: (empty list)",
+            LOG_TAG,
+            Qgis.Info if rings else Qgis.Warning,
+        )
+    except Exception as exc:
+        print("[GeoEngine Cloud] keyring backend debug failed:", exc, flush=True)
+        QgsMessageLog.logMessage(
+            f"Keyring backend debug failed: {exc}",
+            LOG_TAG,
+            Qgis.Warning,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -198,6 +229,80 @@ class AuthManager(QObject):
 
     def __init__(self):
         super().__init__()
+        self._pending_login_error: str | None = None
+        self._pending_exchange_tokens: dict | None = None
+
+    def event(self, e):
+        if e.type() == _AUTH_WAKE_MAIN:
+            if self._pending_exchange_tokens is not None:
+                self._finish_login_on_main()
+            elif self._pending_login_error is not None:
+                self._deliver_login_failed_msg()
+            return True
+        return super().event(e)
+
+    def _wake_main_thread(self):
+        # Plain QEvent(int); avoids PyQt5 vs PyQt6 QEvent.Type quirks.
+        QCoreApplication.postEvent(self, QEvent(_AUTH_WAKE_MAIN))
+
+    def _post_login_failed(self, message: str):
+        self._pending_login_error = message
+        self._wake_main_thread()
+
+    @pyqtSlot()
+    def _deliver_login_failed_msg(self):
+        msg = self._pending_login_error or ""
+        self._pending_login_error = None
+        self.login_failed.emit(msg)
+
+    @pyqtSlot()
+    def _finish_login_on_main(self):
+        """Runs on main thread: keyring + settings must not run from the login worker."""
+        tokens = self._pending_exchange_tokens
+        self._pending_exchange_tokens = None
+        if tokens is None:
+            QgsMessageLog.logMessage(
+                "_finish_login_on_main: missing pending tokens "
+                "(duplicate wake or scheduler issue)",
+                LOG_TAG,
+                Qgis.Warning,
+            )
+            return
+
+        _dbg_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "login_debug.txt")
+        try:
+            with open(_dbg_path, "w") as f:
+                f.write(f"Exchange response keys: {list(tokens.keys())}\n")
+                f.write(f"Has idToken: {'idToken' in tokens}\n")
+                f.write(f"Has user: {'user' in tokens}\n")
+                if "user" in tokens:
+                    f.write(f"User: {tokens['user']}\n")
+        except OSError as exc:
+            QgsMessageLog.logMessage(
+                f"Could not write login_debug.txt: {exc}", LOG_TAG, Qgis.Warning,
+            )
+
+        id_token = tokens.get("idToken")
+        refresh_token = tokens.get("refreshToken")
+        try:
+            if id_token:
+                _store.set(KEYRING_ID_TOKEN, id_token)
+            if refresh_token:
+                _store.set(KEYRING_REFRESH_TOKEN, refresh_token)
+        except Exception as exc:
+            QgsMessageLog.logMessage(
+                f"Could not persist tokens: {exc}", LOG_TAG, Qgis.Warning,
+            )
+            self.login_failed.emit(f"Could not save tokens: {exc}")
+            return
+
+        user_payload = tokens.get("user") or {}
+        if not isinstance(user_payload, dict):
+            user_payload = {}
+        QgsMessageLog.logMessage(
+            f"Login complete (user keys: {list(user_payload.keys())})", LOG_TAG, Qgis.Info,
+        )
+        self.login_succeeded.emit(user_payload)
 
     # ---- public API --------------------------------------------------------
 
@@ -243,7 +348,7 @@ class AuthManager(QObject):
                 continue
 
         if server is None:
-            self.login_failed.emit(
+            self._post_login_failed(
                 "Could not bind to any port in 9004-9099 for the login callback."
             )
             return
@@ -273,47 +378,40 @@ class AuthManager(QObject):
         server.server_close()
 
         if data is None:
-            self.login_failed.emit("Login timed out — no callback received.")
+            self._post_login_failed("Login timed out — no callback received.")
             return
 
         if "error" in data:
             desc = data.get("errorDescription", data.get("error", "Unknown error"))
-            self.login_failed.emit(f"Login error: {desc}")
+            self._post_login_failed(f"Login error: {desc}")
             return
 
         if data.get("state") != state:
-            self.login_failed.emit("State mismatch — possible CSRF attack.")
+            self._post_login_failed("State mismatch — possible CSRF attack.")
             return
 
         exchange_code = data.get("exchangeCode")
         if not exchange_code:
-            self.login_failed.emit("No exchange code in callback.")
+            self._post_login_failed("No exchange code in callback.")
             return
 
         # Exchange code for tokens.
         try:
             tokens = self._exchange_code(exchange_code, code_verifier)
         except Exception as exc:
-            self.login_failed.emit(f"Token exchange failed: {exc}")
+            QgsMessageLog.logMessage(
+                f"Token exchange failed: {exc}", LOG_TAG, Qgis.Warning,
+            )
+            self._post_login_failed(f"Token exchange failed: {exc}")
             return
 
-        _dbg_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "login_debug.txt")
-        with open(_dbg_path, "w") as f:
-            f.write(f"Exchange response keys: {list(tokens.keys())}\n")
-            f.write(f"Has idToken: {'idToken' in tokens}\n")
-            f.write(f"Has user: {'user' in tokens}\n")
-            if "user" in tokens:
-                f.write(f"User: {tokens['user']}\n")
-
-        # Persist tokens.
-        id_token = tokens.get("idToken")
-        refresh_token = tokens.get("refreshToken")
-        if id_token:
-            _store.set(KEYRING_ID_TOKEN, id_token)
-        if refresh_token:
-            _store.set(KEYRING_REFRESH_TOKEN, refresh_token)
-
-        self.login_succeeded.emit(tokens.get("user", {}))
+        QgsMessageLog.logMessage(
+            "Exchange OK — scheduling save + UI on main thread",
+            LOG_TAG,
+            Qgis.Info,
+        )
+        self._pending_exchange_tokens = tokens
+        self._wake_main_thread()
 
     @staticmethod
     def _exchange_code(exchange_code, code_verifier):
@@ -333,7 +431,22 @@ class AuthManager(QObject):
         req.add_header("Content-Type", "application/json")
         try:
             with urlopen(req, timeout=30) as resp:
-                return json.loads(resp.read())
+                raw = resp.read()
+                status = getattr(resp, "status", "?")
+                QgsMessageLog.logMessage(
+                    f"Exchange HTTP status={status}, body_len={len(raw)}",
+                    LOG_TAG,
+                    Qgis.Info,
+                )
+                try:
+                    return json.loads(raw)
+                except json.JSONDecodeError as jexc:
+                    QgsMessageLog.logMessage(
+                        f"Exchange response is not valid JSON: {jexc}",
+                        LOG_TAG,
+                        Qgis.Warning,
+                    )
+                    raise
         except HTTPError as exc:
             raw = exc.read().decode("utf-8", errors="replace")
             QgsMessageLog.logMessage(

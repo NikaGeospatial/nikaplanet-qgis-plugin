@@ -27,7 +27,7 @@ def get_setting(key: str, default: str = "") -> str:
 
 def get_control_server_url() -> str:
     """Return the base URL for the geoengine-control server."""
-    host = get_setting("GEOENGINE_CONTROL_SERVER", "localhost:8080")
+    host = get_setting("GEOENGINE_CONTROL_SERVER", "https://planet.nika.eco")
     if not host.startswith(("http://", "https://")):
         host = f"http://{host}"
     return host
