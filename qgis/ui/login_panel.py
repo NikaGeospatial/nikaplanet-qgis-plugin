@@ -15,6 +15,7 @@ class LoginPanel(QDockWidget):
     """Dock widget displaying the NikaPlanet login screen."""
 
     sign_in_clicked = pyqtSignal()
+    fetch_tasks_clicked = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__("NikaPlanet", parent)
@@ -88,6 +89,17 @@ class LoginPanel(QDockWidget):
         btn.clicked.connect(self.sign_in_clicked.emit)
         lay.addWidget(btn, alignment=Qt.AlignCenter)
 
+        lay.addSpacing(12)
+
+        # ── debug: fetch tasks button ─────────────────────────────────
+        dbg_btn = QPushButton("\U0001f50d  FETCH REMOTE TASKS")
+        dbg_btn.setObjectName("npDebugFetch")
+        dbg_btn.setCursor(Qt.PointingHandCursor)
+        dbg_btn.setFixedHeight(40)
+        dbg_btn.setMinimumWidth(240)
+        dbg_btn.clicked.connect(self.fetch_tasks_clicked.emit)
+        lay.addWidget(dbg_btn, alignment=Qt.AlignCenter)
+
         lay.addSpacerItem(
             QSpacerItem(0, 30, QSizePolicy.Minimum, QSizePolicy.Expanding)
         )
@@ -156,6 +168,24 @@ _STYLESHEET = """
 #npSignIn:pressed {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
         stop:0 #35aca3, stop:1 #5fcfc6);
+}
+
+/* debug fetch button */
+#npDebugFetch {
+    background: transparent;
+    color: #6a7a90;
+    border: 1px dashed #4a5568;
+    border-radius: 8px;
+    font-size: 9pt;
+    font-weight: bold;
+    padding: 0 24px;
+}
+#npDebugFetch:hover {
+    color: #e8ecf2;
+    border-color: #4ecdc4;
+}
+#npDebugFetch:pressed {
+    color: #4ecdc4;
 }
 
 /* footer */

@@ -19,6 +19,7 @@ class GeoEngineCloudProvider(QgsProcessingProvider):
         super().__init__()
         self._auth = auth
         self._authenticated = False
+        self._tenant_id: str | None = None
 
     def loadAlgorithms(self):
         QgsMessageLog.logMessage(
@@ -54,10 +55,13 @@ class GeoEngineCloudProvider(QgsProcessingProvider):
                 )
 
     def _fetch_remote_tasks(self) -> list[dict]:
-        """GET /api/workers?qgis=true from the control server."""
-        url = f"{get_control_server_url()}/api/workers?qgis=true"
+        """GET /api/workers?tenantId=… from the control server."""
+        if not self._tenant_id:
+            QgsMessageLog.logMessage("No tenantId available — skipping remote fetch", PLUGIN_LOG_TAG, Qgis.Warning)
+            return []
+        url = f"{get_control_server_url()}/api/workers?tenantId={self._tenant_id}"
         QgsMessageLog.logMessage(f"Fetching remote tasks from {url}", PLUGIN_LOG_TAG, Qgis.Info)
-        req = urllib.request.Request(url)
+        req = urllib.request.Request(url, method = "GET")
         if self._auth:
             token = self._auth.ensure_valid_token()
             if token:

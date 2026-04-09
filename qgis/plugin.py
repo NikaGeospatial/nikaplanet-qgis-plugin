@@ -24,6 +24,7 @@ class GeoEngineCloudPlugin:
         self.iface.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.login_panel)
         self.login_panel.hide()
         self.login_panel.sign_in_clicked.connect(self._on_sign_in)
+        self.login_panel.fetch_tasks_clicked.connect(self._on_fetch_tasks)
 
         self.auth.login_succeeded.connect(
             self._on_login_success, Qt.ConnectionType.QueuedConnection
@@ -71,11 +72,28 @@ class GeoEngineCloudPlugin:
             "GeoEngine Cloud",
             f"Logged in as {username} ({email})",
         )
+        self.provider._tenant_id = (user.get("ownedTenant") or {}).get("id")
         self.provider._authenticated = True
         QgsMessageLog.logMessage(
             "Scheduling provider refresh on main thread", PLUGIN_LOG_TAG, Qgis.Info
         )
         QTimer.singleShot(0, self.provider.refreshAlgorithms)
+
+    def _on_fetch_tasks(self):
+        QgsMessageLog.logMessage(
+            "[DEBUG] Manual fetch-tasks triggered", PLUGIN_LOG_TAG, Qgis.Info
+        )
+        tasks = self.provider._fetch_remote_tasks()
+        QgsMessageLog.logMessage(
+            f"[DEBUG] Fetched {len(tasks)} task(s): {tasks}",
+            PLUGIN_LOG_TAG, Qgis.Info,
+        )
+        QMessageBox.information(
+            self.iface.mainWindow(),
+            "GeoEngine Cloud — Debug",
+            f"Fetched {len(tasks)} remote task(s).\n\n"
+            "Check the QGIS message log for details.",
+        )
 
     def _on_login_failed(self, error):
         QgsMessageLog.logMessage(
