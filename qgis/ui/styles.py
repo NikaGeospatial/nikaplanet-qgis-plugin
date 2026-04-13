@@ -194,11 +194,6 @@ def _stylesheet(c: dict) -> str:
     color: {c["text_dim"]};
     font-size: 12pt;
 }}
-#npVersionLabel {{
-    color: {c["text_dim"]};
-    font-size: 9pt;
-    padding: 3px 0;
-}}
 #npVersionSep {{
     background-color: {c["divider"]};
 }}

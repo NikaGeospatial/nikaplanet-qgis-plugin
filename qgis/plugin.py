@@ -38,6 +38,9 @@ class GeoEngineCloudPlugin:
         self.initProcessing()
         debug_log_keyring_backends()
 
+        # Auto-restore session if tokens are already in keyring
+        QTimer.singleShot(0, self._try_auto_login)
+
     def initProcessing(self):
         self.provider = GeoEngineCloudProvider(self.auth)
         QgsApplication.processingRegistry().addProvider(self.provider)
@@ -55,6 +58,14 @@ class GeoEngineCloudPlugin:
             self.login_panel.hide()
         else:
             self.login_panel.show()
+
+    # ── auto-login ─────────────────────────────────────────────────
+
+    def _try_auto_login(self):
+        """Check keyring for existing tokens and skip to capabilities if valid."""
+        user = self.auth.try_restore_session()
+        if user:
+            self._on_login_success(user)
 
     # ── auth callbacks ─────────────────────────────────────────────
 

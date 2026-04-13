@@ -20,16 +20,17 @@ from ..util.messages import PLUGIN_LOG_TAG as LOG_TAG
 _AUTH_WAKE_MAIN = QEvent.registerEventType()
 
 BASE_URL = "https://planet.nika.eco"
-KEYRING_SERVICE = "Geoengine + plugins"
 KEYRING_ID_TOKEN = "nika-id-token"
 KEYRING_REFRESH_TOKEN = "nika-refresh-token"
 PORT_RANGE = range(9004, 9100)
 LOGIN_TIMEOUT = 300  # seconds
 
-# QgsSettings keys (fallback when keyring is unavailable)
+# QgsSettings keys (fallback when keyring is unavailable, and user info)
 _QS_PREFIX = "geoengine_cloud/"
 _QS_ID_TOKEN = _QS_PREFIX + "id_token"
 _QS_REFRESH_TOKEN = _QS_PREFIX + "refresh_token"
+_QS_USER_INFO = _QS_PREFIX + "user_info"
+_QS_USERNAME = _QS_PREFIX + "username"
 
 
 # ---------------------------------------------------------------------------
@@ -127,20 +128,43 @@ def debug_log_keyring_backends():
 # ---------------------------------------------------------------------------
 
 class _KeyringStore:
-    """Store tokens in the OS keyring via the keyring library."""
+    """Store tokens in the OS keyring, keyed by (service=entry_name, user=nika_username).
+
+    Matches the Rust ``keyring::Entry::new(entry, username)`` convention used
+    by the GeoEngine CLI so both applications share the same credentials.
+    """
 
     def __init__(self, kr):
         self._kr = kr
+        self._qs = QgsSettings()
+
+    def _username(self):
+        return self._qs.value(_QS_USERNAME, None)
+
+    def set_username(self, username):
+        self._qs.setValue(_QS_USERNAME, username)
+
+    def clear_username(self):
+        self._qs.remove(_QS_USERNAME)
 
     def get(self, key):
-        return self._kr.get_password(KEYRING_SERVICE, key)
+        username = self._username()
+        if not username:
+            return None
+        return self._kr.get_password(key, username)
 
     def set(self, key, value):
-        self._kr.set_password(KEYRING_SERVICE, key, value)
+        username = self._username()
+        if not username:
+            raise RuntimeError("No username stored — cannot write to keyring")
+        self._kr.set_password(key, username, value)
 
     def delete(self, key):
+        username = self._username()
+        if not username:
+            return
         try:
-            self._kr.delete_password(KEYRING_SERVICE, key)
+            self._kr.delete_password(key, username)
         except self._kr.errors.PasswordDeleteError:
             pass
 
@@ -155,6 +179,12 @@ class _QgsSettingsStore:
 
     def __init__(self):
         self._s = QgsSettings()
+
+    def set_username(self, username):
+        self._s.setValue(_QS_USERNAME, username)
+
+    def clear_username(self):
+        self._s.remove(_QS_USERNAME)
 
     def get(self, key):
         return self._s.value(self._KEY_MAP.get(key, key), None)
@@ -312,18 +342,14 @@ class AuthManager(QObject):
             )
             return
 
-        _dbg_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "login_debug.txt")
-        try:
-            with open(_dbg_path, "w") as f:
-                f.write(f"Exchange response keys: {list(tokens.keys())}\n")
-                f.write(f"Has idToken: {'idToken' in tokens}\n")
-                f.write(f"Has user: {'user' in tokens}\n")
-                if "user" in tokens:
-                    f.write(f"User: {tokens['user']}\n")
-        except OSError as exc:
-            QgsMessageLog.logMessage(
-                f"Could not write login_debug.txt: {exc}", LOG_TAG, Qgis.Warning,
-            )
+        user_payload = tokens.get("user") or {}
+        if not isinstance(user_payload, dict):
+            user_payload = {}
+
+        # Store the username first so keyring lookups can resolve the entry.
+        username = user_payload.get("username", "")
+        if username:
+            _store.set_username(username)
 
         id_token = tokens.get("idToken")
         refresh_token = tokens.get("refreshToken")
@@ -339,9 +365,13 @@ class AuthManager(QObject):
             self.login_failed.emit(f"Could not save tokens: {exc}")
             return
 
-        user_payload = tokens.get("user") or {}
-        if not isinstance(user_payload, dict):
-            user_payload = {}
+        try:
+            QgsSettings().setValue(_QS_USER_INFO, json.dumps(user_payload))
+        except Exception as exc:
+            QgsMessageLog.logMessage(
+                f"Could not persist user info: {exc}", LOG_TAG, Qgis.Warning,
+            )
+
         QgsMessageLog.logMessage(
             f"Login complete (user keys: {list(user_payload.keys())})", LOG_TAG, Qgis.Info,
         )
@@ -370,10 +400,70 @@ class AuthManager(QObject):
             return token
         return self._refresh_id_token()
 
+    def try_restore_session(self) -> dict | None:
+        """Check for stored tokens and return user info if session is valid.
+
+        Returns the user info dict if a valid session was restored, or None.
+        """
+        QgsMessageLog.logMessage(
+            "Checking keyring for existing session\u2026", LOG_TAG, Qgis.Info,
+        )
+
+        id_token = self.get_id_token()
+        if not id_token:
+            QgsMessageLog.logMessage(
+                "No stored ID token found — no session to restore", LOG_TAG, Qgis.Info,
+            )
+            return None
+
+        if self._is_token_expired(id_token):
+            QgsMessageLog.logMessage(
+                "Stored ID token is expired, attempting refresh\u2026", LOG_TAG, Qgis.Info,
+            )
+            id_token = self._refresh_id_token()
+            if not id_token:
+                QgsMessageLog.logMessage(
+                    "Token refresh failed — session not restored", LOG_TAG, Qgis.Warning,
+                )
+                return None
+            QgsMessageLog.logMessage(
+                "Token refreshed successfully", LOG_TAG, Qgis.Info,
+            )
+        else:
+            QgsMessageLog.logMessage(
+                "Stored ID token is still valid", LOG_TAG, Qgis.Info,
+            )
+
+        raw = QgsSettings().value(_QS_USER_INFO, None)
+        if not raw:
+            QgsMessageLog.logMessage(
+                "No stored user info found — session not restored", LOG_TAG, Qgis.Warning,
+            )
+            return None
+
+        try:
+            user = json.loads(raw)
+            if isinstance(user, dict) and user.get("username"):
+                QgsMessageLog.logMessage(
+                    f"Session restored for {user['username']}", LOG_TAG, Qgis.Info,
+                )
+                return user
+            QgsMessageLog.logMessage(
+                "Stored user info is missing username — session not restored",
+                LOG_TAG, Qgis.Warning,
+            )
+        except (json.JSONDecodeError, ValueError) as exc:
+            QgsMessageLog.logMessage(
+                f"Stored user info is invalid JSON: {exc}", LOG_TAG, Qgis.Warning,
+            )
+        return None
+
     def logout(self):
-        """Delete stored tokens."""
+        """Delete stored tokens and user info."""
         _store.delete(KEYRING_ID_TOKEN)
         _store.delete(KEYRING_REFRESH_TOKEN)
+        QgsSettings().remove(_QS_USER_INFO)
+        _store.clear_username()
 
     # ---- internals ---------------------------------------------------------
 
