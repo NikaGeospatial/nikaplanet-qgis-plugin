@@ -26,11 +26,10 @@ class _WorkerCard(QWidget):
     def __init__(self, name: str, description: str, entries: list[dict], parent=None):
         super().__init__(parent)
         self.setObjectName("npWorkerCard")
-        self._entries = entries
         self._expanded = len(entries) > 1
 
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(14, 10, 14, 10)
+        outer.setContentsMargins(14, 12, 14, 12)
         outer.setSpacing(0)
 
         # header row
@@ -59,7 +58,7 @@ class _WorkerCard(QWidget):
         # versions container
         self._versions_widget = QWidget()
         v_lay = QVBoxLayout(self._versions_widget)
-        v_lay.setContentsMargins(0, 6, 0, 0)
+        v_lay.setContentsMargins(0, 8, 0, 0)
         v_lay.setSpacing(0)
 
         sorted_entries = sorted(
@@ -71,13 +70,25 @@ class _WorkerCard(QWidget):
                 sep.setObjectName("npVersionSep")
                 sep.setFixedHeight(1)
                 v_lay.addWidget(sep)
-            ver_btn = QPushButton(entry.get("version", "?"))
-            ver_btn.setObjectName("npVersionBtn")
-            ver_btn.setCursor(Qt.PointingHandCursor)
-            ver_btn.clicked.connect(
+
+            row = QHBoxLayout()
+            row.setContentsMargins(0, 6, 0, 6)
+            row.setSpacing(10)
+
+            badge = QLabel(f"v{entry.get('version', '?')}")
+            badge.setObjectName("npVerBadge")
+            row.addWidget(badge)
+
+            select_btn = QPushButton("Select this version")
+            select_btn.setObjectName("npVersionBtn")
+            select_btn.setCursor(Qt.PointingHandCursor)
+            select_btn.clicked.connect(
                 lambda _=False, e=entry: self.run_requested.emit(e)
             )
-            v_lay.addWidget(ver_btn)
+            row.addWidget(select_btn)
+            row.addStretch()
+
+            v_lay.addLayout(row)
 
         outer.addWidget(self._versions_widget)
         self._update_chevron()
@@ -93,7 +104,7 @@ class _WorkerCard(QWidget):
 
 
 class _SubmittedJobCard(QWidget):
-    """Clickable card for a submitted job in the Submitted tab."""
+    """Clickable card for a submitted job in the Sessions tab."""
 
     clicked = pyqtSignal()
 
@@ -132,7 +143,7 @@ class _SubmittedJobCard(QWidget):
 
 
 class WorkersPage(QWidget):
-    """Team Worker Version Management Dashboard with Workers and Submitted tabs."""
+    """Worker catalog and sessions dashboard."""
 
     refresh_clicked = pyqtSignal()
     logout_clicked = pyqtSignal()
@@ -144,7 +155,7 @@ class WorkersPage(QWidget):
 
         root = QVBoxLayout(self)
         root.setContentsMargins(16, 8, 16, 16)
-        root.setSpacing(12)
+        root.setSpacing(8)
 
         # back button
         back_btn = QPushButton("\u2190  Back")
@@ -154,41 +165,11 @@ class WorkersPage(QWidget):
         back_btn.clicked.connect(self.back_clicked.emit)
         root.addWidget(back_btn, 0, Qt.AlignLeft)
 
-        # title row
-        title_row = QHBoxLayout()
-        title_row.setSpacing(8)
-        title = QLabel("Team Worker Version\nManagement Dashboard")
-        title.setObjectName("npWorkersTitle")
-        title.setWordWrap(True)
-        title_row.addWidget(title, 1)
-
-        refresh = QPushButton("Refresh")
-        refresh.setObjectName("npRefreshBtn")
-        refresh.setCursor(Qt.PointingHandCursor)
-        refresh.setFixedHeight(30)
-        refresh.clicked.connect(self.refresh_clicked.emit)
-        title_row.addWidget(refresh, 0, Qt.AlignTop)
-
-        logout = QPushButton("Logout")
-        logout.setObjectName("npLogoutBtn")
-        logout.setCursor(Qt.PointingHandCursor)
-        logout.setFixedHeight(30)
-        logout.clicked.connect(self.logout_clicked.emit)
-        title_row.addWidget(logout, 0, Qt.AlignTop)
-
-        root.addLayout(title_row)
-
-        # divider
-        div = QFrame()
-        div.setObjectName("npVersionSep")
-        div.setFixedHeight(1)
-        root.addWidget(div)
-
-        # tab bar
+        # tab bar + action buttons in one row
         tab_row = QHBoxLayout()
         tab_row.setSpacing(0)
 
-        self._workers_tab_btn = QPushButton("Workers")
+        self._workers_tab_btn = QPushButton("CATALOG")
         self._workers_tab_btn.setObjectName("npTabBtn")
         self._workers_tab_btn.setCheckable(True)
         self._workers_tab_btn.setChecked(True)
@@ -196,7 +177,7 @@ class WorkersPage(QWidget):
         self._workers_tab_btn.clicked.connect(lambda: self._switch_tab(0))
         tab_row.addWidget(self._workers_tab_btn)
 
-        self._submitted_tab_btn = QPushButton("Submitted")
+        self._submitted_tab_btn = QPushButton("SESSIONS")
         self._submitted_tab_btn.setObjectName("npTabBtn")
         self._submitted_tab_btn.setCheckable(True)
         self._submitted_tab_btn.setCursor(Qt.PointingHandCursor)
@@ -204,6 +185,24 @@ class WorkersPage(QWidget):
         tab_row.addWidget(self._submitted_tab_btn)
 
         tab_row.addStretch()
+
+        refresh = QPushButton("\u21BB")
+        refresh.setObjectName("npRefreshBtn")
+        refresh.setToolTip("Refresh workers")
+        refresh.setCursor(Qt.PointingHandCursor)
+        refresh.setFixedSize(30, 30)
+        refresh.clicked.connect(self.refresh_clicked.emit)
+        tab_row.addWidget(refresh)
+
+        tab_row.addSpacing(6)
+
+        logout = QPushButton("Logout")
+        logout.setObjectName("npLogoutBtn")
+        logout.setCursor(Qt.PointingHandCursor)
+        logout.setFixedHeight(30)
+        logout.clicked.connect(self.logout_clicked.emit)
+        tab_row.addWidget(logout)
+
         root.addLayout(tab_row)
 
         # stacked content
@@ -238,11 +237,11 @@ class WorkersPage(QWidget):
     # ── public API ────────────────────────────────────────────────
 
     def set_workers_data(self, tenants: list[dict]) -> None:
-        """Populate the Workers tab."""
+        """Populate the Catalog tab."""
         content = QWidget()
         lay = QVBoxLayout(content)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(16)
+        lay.setContentsMargins(0, 4, 0, 0)
+        lay.setSpacing(12)
 
         any_workers = False
 
@@ -265,7 +264,7 @@ class WorkersPage(QWidget):
                 lay.addWidget(card)
 
             lay.addSpacerItem(
-                QSpacerItem(0, 8, QSizePolicy.Minimum, QSizePolicy.Fixed)
+                QSpacerItem(0, 4, QSizePolicy.Minimum, QSizePolicy.Fixed)
             )
 
         if not any_workers:
@@ -331,11 +330,11 @@ class WorkersPage(QWidget):
     def _rebuild_submitted_list(self):
         content = QWidget()
         lay = QVBoxLayout(content)
-        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setContentsMargins(0, 4, 0, 0)
         lay.setSpacing(8)
 
         if not self._sessions:
-            empty = QLabel("No submitted jobs yet.")
+            empty = QLabel("No submitted sessions yet.")
             empty.setObjectName("npEmptyLabel")
             empty.setAlignment(Qt.AlignCenter)
             lay.addWidget(empty)

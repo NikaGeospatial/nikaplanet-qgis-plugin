@@ -89,8 +89,9 @@ class WorkerRunDialog(QDialog):
             lay.addWidget(d)
 
         form = QFormLayout()
-        form.setSpacing(8)
-        form.setContentsMargins(0, 8, 0, 8)
+        form.setRowWrapPolicy(QFormLayout.WrapAllRows)
+        form.setSpacing(6)
+        form.setContentsMargins(0, 4, 0, 4)
 
         # machine type
         self._machine_combo = QComboBox()

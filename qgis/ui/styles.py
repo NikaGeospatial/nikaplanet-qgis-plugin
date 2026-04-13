@@ -144,22 +144,17 @@ def _stylesheet(c: dict) -> str:
 }}
 
 /* ── workers page ──────────────────────────────────────────────────── */
-#npWorkersTitle {{
-    color: {c["text"]};
-    font-size: 14pt;
-    font-weight: 700;
-}}
 #npRefreshBtn {{
-    background-color: {c["primary"]};
-    color: {c["bg"]};
-    border: none;
+    background: transparent;
+    color: {c["text_dim"]};
+    border: 1px solid {c["btn_outline_bdr"]};
     border-radius: 6px;
-    font-size: 9pt;
-    font-weight: 700;
-    padding: 6px 14px;
+    font-size: 12pt;
+    padding: 0;
 }}
 #npRefreshBtn:hover {{
-    background-color: {c["primary_hover"]};
+    border-color: {c["primary"]};
+    color: {c["primary"]};
 }}
 #npLogoutBtn {{
     background: transparent;
@@ -222,17 +217,24 @@ def _stylesheet(c: dict) -> str:
     color: {c["text_dim"]};
     font-size: 10pt;
 }}
+#npVerBadge {{
+    background-color: {c["primary"]};
+    color: {c["bg"]};
+    border-radius: 4px;
+    font-size: 8pt;
+    font-weight: 700;
+    padding: 3px 8px;
+}}
 #npVersionBtn {{
     background: transparent;
     border: none;
-    color: {c["primary"]};
+    color: {c["text_dim"]};
     font-size: 9pt;
-    padding: 4px 0;
+    padding: 0;
     text-align: left;
 }}
 #npVersionBtn:hover {{
-    color: {c["primary_hover"]};
-    text-decoration: underline;
+    color: {c["primary"]};
 }}
 
 /* ── tab bar ──────────────────────────────────────────────────────── */
@@ -338,10 +340,6 @@ def _stylesheet(c: dict) -> str:
 #npSubmitRunBtn:hover {{
     background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
         stop:0 {c["primary_hover"]}, stop:1 {c["primary_grad_end"]});
-}}
-QFormLayout QLabel {{
-    color: {c["text"]};
-    font-size: 9pt;
 }}
 
 /* ── log view ─────────────────────────────────────────────────────── */
