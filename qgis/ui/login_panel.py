@@ -82,7 +82,14 @@ class LoginPanel(QDockWidget):
     def show_login(self):
         self._username = None
         self._user_chip.hide()
+        self.set_sign_in_loading(False)
         self._stack.setCurrentIndex(PAGE_LOGIN)
+
+    def set_sign_in_loading(self, loading: bool):
+        self._sign_in_btn.setEnabled(not loading)
+        self._sign_in_btn.setText(
+            "CHECKING\u2026" if loading else "\u2192   SIGN IN WITH NIKAPLANET"
+        )
 
     def show_capabilities(self, username: str | None = None):
         if username:
@@ -179,13 +186,13 @@ class LoginPanel(QDockWidget):
         lay.addSpacing(32)
 
         # sign-in button
-        btn = QPushButton("\u2192   SIGN IN WITH NIKAPLANET")
-        btn.setObjectName("npSignIn")
-        btn.setCursor(Qt.PointingHandCursor)
-        btn.setFixedHeight(48)
-        btn.setMinimumWidth(240)
-        btn.clicked.connect(self.sign_in_clicked.emit)
-        lay.addWidget(btn, alignment=Qt.AlignCenter)
+        self._sign_in_btn = QPushButton("\u2192   SIGN IN WITH NIKAPLANET")
+        self._sign_in_btn.setObjectName("npSignIn")
+        self._sign_in_btn.setCursor(Qt.PointingHandCursor)
+        self._sign_in_btn.setFixedHeight(48)
+        self._sign_in_btn.setMinimumWidth(240)
+        self._sign_in_btn.clicked.connect(self.sign_in_clicked.emit)
+        lay.addWidget(self._sign_in_btn, alignment=Qt.AlignCenter)
 
         lay.addSpacerItem(
             QSpacerItem(0, 30, QSizePolicy.Minimum, QSizePolicy.Expanding)

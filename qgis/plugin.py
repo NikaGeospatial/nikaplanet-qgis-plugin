@@ -70,6 +70,17 @@ class GeoEngineCloudPlugin:
     # ── auth callbacks ─────────────────────────────────────────────
 
     def _on_sign_in(self):
+        self.login_panel.set_sign_in_loading(True)
+        QTimer.singleShot(0, self._sign_in_check)
+
+    def _sign_in_check(self):
+        # If the GeoEngine CLI (or a previous session) left tokens in the
+        # keyring, skip the browser flow and go straight to capabilities.
+        user = self.auth.try_restore_session()
+        if user:
+            self._on_login_success(user)
+            return
+        self.login_panel.set_sign_in_loading(False)
         QgsMessageLog.logMessage(
             "Starting GeoEngine login\u2026", PLUGIN_LOG_TAG, Qgis.Info
         )
