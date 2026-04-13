@@ -13,6 +13,7 @@ class GeoEngineCloudPlugin:
         self.toolbar_action = None
         self.login_panel = None
         self.auth = AuthManager()
+        self._user_info: dict | None = None
 
     def initGui(self):
         self.toolbar_action = QAction("GeoEngine Cloud", self.iface.mainWindow())
@@ -24,7 +25,8 @@ class GeoEngineCloudPlugin:
         self.iface.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.login_panel)
         self.login_panel.hide()
         self.login_panel.sign_in_clicked.connect(self._on_sign_in)
-        self.login_panel.fetch_tasks_clicked.connect(self._on_fetch_tasks)
+        self.login_panel.refresh_workers_clicked.connect(self._on_refresh_workers)
+        self.login_panel.logout_clicked.connect(self._on_logout)
 
         self.auth.login_succeeded.connect(
             self._on_login_success, Qt.ConnectionType.QueuedConnection
@@ -54,46 +56,31 @@ class GeoEngineCloudPlugin:
         else:
             self.login_panel.show()
 
+    # ── auth callbacks ─────────────────────────────────────────────
+
     def _on_sign_in(self):
         QgsMessageLog.logMessage(
-            "Starting GeoEngine login…", PLUGIN_LOG_TAG, Qgis.Info
+            "Starting GeoEngine login\u2026", PLUGIN_LOG_TAG, Qgis.Info
         )
         self.auth.login()
 
     def _on_login_success(self, user):
         user = user or {}
+        self._user_info = user
         username = user.get("username", "Unknown")
-        email = user.get("email", "")
+
         QgsMessageLog.logMessage(
             f"Logged in as {username}", PLUGIN_LOG_TAG, Qgis.Info
         )
-        QMessageBox.information(
-            self.iface.mainWindow(),
-            "GeoEngine Cloud",
-            f"Logged in as {username} ({email})",
-        )
+
         self.provider._tenant_id = (user.get("ownedTenant") or {}).get("id")
         self.provider._authenticated = True
-        QgsMessageLog.logMessage(
-            "Scheduling provider refresh on main thread", PLUGIN_LOG_TAG, Qgis.Info
-        )
-        QTimer.singleShot(0, self.provider.refreshAlgorithms)
 
-    def _on_fetch_tasks(self):
-        QgsMessageLog.logMessage(
-            "[DEBUG] Manual fetch-tasks triggered", PLUGIN_LOG_TAG, Qgis.Info
-        )
-        tasks = self.provider._fetch_remote_tasks()
-        QgsMessageLog.logMessage(
-            f"[DEBUG] Fetched {len(tasks)} task(s): {tasks}",
-            PLUGIN_LOG_TAG, Qgis.Info,
-        )
-        QMessageBox.information(
-            self.iface.mainWindow(),
-            "GeoEngine Cloud — Debug",
-            f"Fetched {len(tasks)} remote task(s).\n\n"
-            "Check the QGIS message log for details.",
-        )
+        self.login_panel.show_capabilities(username)
+
+        # Refresh algorithms (fetches workers for owned tenant) then
+        # populate the workers page with the results + invited tenants.
+        QTimer.singleShot(0, self._refresh_and_load_workers)
 
     def _on_login_failed(self, error):
         QgsMessageLog.logMessage(
@@ -104,3 +91,57 @@ class GeoEngineCloudPlugin:
             "GeoEngine Cloud",
             f"Login failed:\n{error}",
         )
+
+    # ── workers ────────────────────────────────────────────────────
+
+    def _refresh_and_load_workers(self):
+        """Refresh processing algorithms, then populate the workers page."""
+        self.provider.refreshAlgorithms()
+        self._populate_workers_page()
+
+    def _populate_workers_page(self):
+        """Build tenants-data from the provider's fetch results + invited tenants."""
+        user = self._user_info or {}
+        tenants_data: list[dict] = []
+
+        # Owned tenant: reuse the tasks the provider just fetched
+        owned = user.get("ownedTenant") or {}
+        if owned.get("id"):
+            tenants_data.append({
+                "name": owned.get("name", "My Team"),
+                "workers": list(self.provider.last_fetched_tasks),
+            })
+
+        # Invited tenants: fetch using the same (working) mechanism
+        for inv in user.get("invitedTenants") or []:
+            tid = inv.get("id")
+            if not tid:
+                continue
+            workers = self.provider.fetch_remote_tasks(tenant_id=tid)
+            tenants_data.append({
+                "name": inv.get("name", "Team"),
+                "workers": workers,
+            })
+
+        self.login_panel.workers_page.set_workers_data(tenants_data)
+        total = sum(len(t["workers"]) for t in tenants_data)
+        QgsMessageLog.logMessage(
+            f"Workers page loaded: {total} worker(s) across {len(tenants_data)} tenant(s)",
+            PLUGIN_LOG_TAG,
+            Qgis.Info,
+        )
+
+    def _on_refresh_workers(self):
+        QgsMessageLog.logMessage(
+            "Refreshing workers\u2026", PLUGIN_LOG_TAG, Qgis.Info
+        )
+        self._refresh_and_load_workers()
+
+    def _on_logout(self):
+        self.auth.logout()
+        self._user_info = None
+        self.provider._authenticated = False
+        self.provider._tenant_id = None
+        self.provider.last_fetched_tasks = []
+        self.login_panel.show_login()
+        QgsMessageLog.logMessage("Logged out", PLUGIN_LOG_TAG, Qgis.Info)

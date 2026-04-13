@@ -2,3 +2,4 @@
 __pycache__/
 *.pyc
 *.txt
+/stitch_nikaplanet_arcgis_qgis_plugins_ui/*

@@ -2,35 +2,138 @@ from qgis.PyQt.QtWidgets import (
     QDockWidget,
     QWidget,
     QVBoxLayout,
+    QHBoxLayout,
     QLabel,
     QPushButton,
     QFrame,
     QSizePolicy,
     QSpacerItem,
+    QStackedWidget,
 )
 from qgis.PyQt.QtCore import Qt, pyqtSignal
 
+from .styles import DARK_STYLESHEET, LIGHT_STYLESHEET
+from .capabilities_page import CapabilitiesPage
+from .workers_page import WorkersPage
+
+PAGE_LOGIN = 0
+PAGE_CAPABILITIES = 1
+PAGE_WORKERS = 2
+
 
 class LoginPanel(QDockWidget):
-    """Dock widget displaying the NikaPlanet login screen."""
+    """Dock widget housing login, capabilities, and workers pages."""
 
     sign_in_clicked = pyqtSignal()
-    fetch_tasks_clicked = pyqtSignal()
+    refresh_workers_clicked = pyqtSignal()
+    logout_clicked = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__("NikaPlanet", parent)
         self.setAllowedAreas(
-            Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea
+            Qt.DockWidgetArea.LeftDockWidgetArea
+            | Qt.DockWidgetArea.RightDockWidgetArea
         )
         self.setFeatures(
             QDockWidget.DockWidgetClosable | QDockWidget.DockWidgetMovable
         )
 
-        container = QWidget()
-        container.setObjectName("npLoginRoot")
-        container.setStyleSheet(_STYLESHEET)
+        self._dark_mode = True
+        self._username: str | None = None
 
-        lay = QVBoxLayout(container)
+        # ── outer container ────────────────────────────────────────
+        self._container = QWidget()
+        self._container.setObjectName("npRoot")
+
+        root_lay = QVBoxLayout(self._container)
+        root_lay.setContentsMargins(0, 0, 0, 0)
+        root_lay.setSpacing(0)
+
+        # ── persistent header ──────────────────────────────────────
+        self._header = self._build_header()
+        root_lay.addWidget(self._header)
+
+        # ── stacked pages ──────────────────────────────────────────
+        self._stack = QStackedWidget()
+
+        self._login_page = self._build_login_page()
+        self._stack.addWidget(self._login_page)       # index 0
+
+        self._cap_page = CapabilitiesPage()
+        self._cap_page.card_clicked.connect(self._on_card_clicked)
+        self._stack.addWidget(self._cap_page)          # index 1
+
+        self._workers_page = WorkersPage()
+        self._workers_page.refresh_clicked.connect(self.refresh_workers_clicked.emit)
+        self._workers_page.logout_clicked.connect(self.logout_clicked.emit)
+        self._workers_page.back_clicked.connect(
+            lambda: self._stack.setCurrentIndex(PAGE_CAPABILITIES)
+        )
+        self._stack.addWidget(self._workers_page)      # index 2
+
+        root_lay.addWidget(self._stack, 1)
+
+        self.setWidget(self._container)
+        self.setMinimumWidth(320)
+        self._apply_theme()
+
+    # ── public API ─────────────────────────────────────────────────
+
+    def show_login(self):
+        self._username = None
+        self._user_chip.hide()
+        self._stack.setCurrentIndex(PAGE_LOGIN)
+
+    def show_capabilities(self, username: str | None = None):
+        if username:
+            self._username = username
+            self._user_chip.setText(username[0].upper())
+            self._user_chip.show()
+        self._stack.setCurrentIndex(PAGE_CAPABILITIES)
+
+    def show_workers(self, tenants_data: list[dict]):
+        self._workers_page.set_workers_data(tenants_data)
+        self._stack.setCurrentIndex(PAGE_WORKERS)
+
+    @property
+    def workers_page(self) -> WorkersPage:
+        return self._workers_page
+
+    # ── header ─────────────────────────────────────────────────────
+
+    def _build_header(self) -> QWidget:
+        header = QWidget()
+        header.setObjectName("npHeader")
+        h = QHBoxLayout(header)
+        h.setContentsMargins(16, 10, 16, 6)
+        h.setSpacing(8)
+
+        title = QLabel("NIKAPLANET")
+        title.setObjectName("npHeaderTitle")
+        h.addWidget(title)
+
+        h.addStretch(1)
+
+        self._theme_btn = QPushButton()
+        self._theme_btn.setObjectName("npThemeToggle")
+        self._theme_btn.setFixedSize(32, 32)
+        self._theme_btn.setCursor(Qt.PointingHandCursor)
+        self._theme_btn.clicked.connect(self._toggle_theme)
+        h.addWidget(self._theme_btn)
+
+        self._user_chip = QPushButton()
+        self._user_chip.setObjectName("npUserChip")
+        self._user_chip.setFixedSize(28, 28)
+        self._user_chip.hide()
+        h.addWidget(self._user_chip)
+
+        return header
+
+    # ── login page ─────────────────────────────────────────────────
+
+    def _build_login_page(self) -> QWidget:
+        page = QWidget()
+        lay = QVBoxLayout(page)
         lay.setContentsMargins(24, 16, 24, 16)
         lay.setSpacing(0)
 
@@ -38,9 +141,8 @@ class LoginPanel(QDockWidget):
             QSpacerItem(0, 30, QSizePolicy.Minimum, QSizePolicy.Expanding)
         )
 
-        # ── logo ──────────────────────────────────────────────────────
+        # logo
         logo = QLabel()
-        logo.setObjectName("npLogo")
         logo.setAlignment(Qt.AlignCenter)
         logo.setTextFormat(Qt.RichText)
         logo.setText(
@@ -48,27 +150,24 @@ class LoginPanel(QDockWidget):
             "\U0001f6f0\ufe0f  NikaPlanet</span>"
         )
         lay.addWidget(logo)
-
         lay.addSpacing(16)
 
-        # ── teal divider ──────────────────────────────────────────────
+        # teal divider
         divider = QFrame()
         divider.setFixedSize(40, 2)
         divider.setStyleSheet("background-color: #4ecdc4;")
         lay.addWidget(divider, alignment=Qt.AlignCenter)
-
         lay.addSpacing(20)
 
-        # ── heading ───────────────────────────────────────────────────
+        # heading
         heading = QLabel("Sign in to access your\ngeospatial workspace.")
         heading.setObjectName("npHeading")
         heading.setAlignment(Qt.AlignCenter)
         heading.setWordWrap(True)
         lay.addWidget(heading)
-
         lay.addSpacing(12)
 
-        # ── subtitle ─────────────────────────────────────────────────
+        # subtitle
         subtitle = QLabel(
             "Precision telemetry and cartography\n"
             "tools for the modern explorer."
@@ -77,11 +176,10 @@ class LoginPanel(QDockWidget):
         subtitle.setAlignment(Qt.AlignCenter)
         subtitle.setWordWrap(True)
         lay.addWidget(subtitle)
-
         lay.addSpacing(32)
 
-        # ── sign-in button ────────────────────────────────────────────
-        btn = QPushButton("\u2192)   SIGN IN WITH NIKAPLANET")
+        # sign-in button
+        btn = QPushButton("\u2192   SIGN IN WITH NIKAPLANET")
         btn.setObjectName("npSignIn")
         btn.setCursor(Qt.PointingHandCursor)
         btn.setFixedHeight(48)
@@ -89,31 +187,17 @@ class LoginPanel(QDockWidget):
         btn.clicked.connect(self.sign_in_clicked.emit)
         lay.addWidget(btn, alignment=Qt.AlignCenter)
 
-        lay.addSpacing(12)
-
-        # ── debug: fetch tasks button ─────────────────────────────────
-        dbg_btn = QPushButton("\U0001f50d  FETCH REMOTE TASKS")
-        dbg_btn.setObjectName("npDebugFetch")
-        dbg_btn.setCursor(Qt.PointingHandCursor)
-        dbg_btn.setFixedHeight(40)
-        dbg_btn.setMinimumWidth(240)
-        dbg_btn.clicked.connect(self.fetch_tasks_clicked.emit)
-        lay.addWidget(dbg_btn, alignment=Qt.AlignCenter)
-
         lay.addSpacerItem(
             QSpacerItem(0, 30, QSizePolicy.Minimum, QSizePolicy.Expanding)
         )
 
-        # ── footer ────────────────────────────────────────────────────
+        # footer
         lay.addWidget(self._build_footer())
 
-        self.setWidget(container)
-        self.setMinimumWidth(320)
-
-    # ── private builders ──────────────────────────────────────────────
+        return page
 
     @staticmethod
-    def _build_footer():
+    def _build_footer() -> QWidget:
         footer = QWidget()
         v = QVBoxLayout(footer)
         v.setContentsMargins(0, 0, 0, 0)
@@ -131,66 +215,19 @@ class LoginPanel(QDockWidget):
 
         return footer
 
+    # ── theme toggle ───────────────────────────────────────────────
 
-# ── stylesheet (scoped to #npLoginRoot) ──────────────────────────────
+    def _toggle_theme(self):
+        self._dark_mode = not self._dark_mode
+        self._apply_theme()
 
-_STYLESHEET = """
-#npLoginRoot {
-    background-color: #0c1220;
-}
+    def _apply_theme(self):
+        sheet = DARK_STYLESHEET if self._dark_mode else LIGHT_STYLESHEET
+        self._container.setStyleSheet(sheet)
+        self._theme_btn.setText("\u2600" if self._dark_mode else "\u263D")
 
-/* heading + subtitle */
-#npHeading {
-    color: #e8ecf2;
-    font-size: 16pt;
-    font-weight: bold;
-}
-#npSubtitle {
-    color: #6a7a90;
-    font-size: 10pt;
-}
+    # ── navigation ─────────────────────────────────────────────────
 
-/* sign-in button */
-#npSignIn {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-        stop:0 #3dbcb2, stop:1 #6de0d4);
-    color: #0c1220;
-    border: none;
-    border-radius: 8px;
-    font-size: 10pt;
-    font-weight: bold;
-    padding: 0 24px;
-}
-#npSignIn:hover {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-        stop:0 #4ecdc4, stop:1 #7eeee6);
-}
-#npSignIn:pressed {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-        stop:0 #35aca3, stop:1 #5fcfc6);
-}
-
-/* debug fetch button */
-#npDebugFetch {
-    background: transparent;
-    color: #6a7a90;
-    border: 1px dashed #4a5568;
-    border-radius: 8px;
-    font-size: 9pt;
-    font-weight: bold;
-    padding: 0 24px;
-}
-#npDebugFetch:hover {
-    color: #e8ecf2;
-    border-color: #4ecdc4;
-}
-#npDebugFetch:pressed {
-    color: #4ecdc4;
-}
-
-/* footer */
-#npFooterLinks, #npFooterVersion {
-    color: #4a5568;
-    font-size: 9pt;
-}
-"""
+    def _on_card_clicked(self, key: str):
+        if key == "workers":
+            self._stack.setCurrentIndex(PAGE_WORKERS)

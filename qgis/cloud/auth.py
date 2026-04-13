@@ -227,12 +227,12 @@ class _CallbackHandler(BaseHTTPRequestHandler):
 
         self.server.callback_data = data
         self.server.callback_cookies = self.headers.get("Cookie", "")
-        redirect_url = data.get("redirectUrl", BASE_URL)
 
-        self.send_response(302)
+        self.send_response(200)
         self._cors_headers()
-        self.send_header("Location", redirect_url)
+        self.send_header("Content-Type", "application/json")
         self.end_headers()
+        self.wfile.write(json.dumps({"ok": True}).encode())
 
     def do_GET(self):
         parsed = urlparse(self.path)
@@ -244,16 +244,17 @@ class _CallbackHandler(BaseHTTPRequestHandler):
         params = parse_qs(parsed.query)
         data = {k: v[0] for k, v in params.items()}
         self.server.callback_data = data
-        redirect_url = data.get("redirectUrl", BASE_URL)
 
         self.send_response(302)
-        self.send_header("Location", redirect_url)
+        self._cors_headers()
+        self.send_header("Location", f"{BASE_URL}/en/desktopClientLogin?success=true")
         self.end_headers()
 
     def _cors_headers(self):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Private-Network", "true")
 
     def log_message(self, format, *args):
         pass  # suppress console noise
