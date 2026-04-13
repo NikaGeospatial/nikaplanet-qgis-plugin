@@ -143,5 +143,6 @@ class GeoEngineCloudPlugin:
         self.provider._authenticated = False
         self.provider._tenant_id = None
         self.provider.last_fetched_tasks = []
+        self.login_panel.workers_page.clear_sessions()
         self.login_panel.show_login()
         QgsMessageLog.logMessage("Logged out", PLUGIN_LOG_TAG, Qgis.Info)

@@ -64,7 +64,7 @@ class RemoteAlgorithm(QgsProcessingAlgorithm):
         # Loop over each input defined in the YAML's command.inputs array.
         # This builds the parameter dialog that QGIS shows when the user
         # opens this algorithm in the Processing Toolbox.
-        for inp in self._task_def.get("command", {}).get("inputs", []):
+        for inp in self._task_def.get("inputs") or self._task_def.get("command", {}).get("inputs", []):
             # Look up a QGIS parameter builder based on (type, readonly).
             # e.g. ("file", True)  -> QgsProcessingParameterFile (file picker)
             #      ("file", False) -> QgsProcessingParameterFileDestination (save dialog)
@@ -94,7 +94,7 @@ class RemoteAlgorithm(QgsProcessingAlgorithm):
         # defined in the YAML. parameterAsString extracts the value as a
         # string regardless of the parameter widget type.
         inputs = {}
-        for inp in self._task_def.get("command", {}).get("inputs", []):
+        for inp in self._task_def.get("inputs") or self._task_def.get("command", {}).get("inputs", []):
             val = self.parameterAsString(parameters, inp["name"], context)
             if val:
                 inputs[inp["name"]] = val

@@ -222,6 +222,200 @@ def _stylesheet(c: dict) -> str:
     color: {c["text_dim"]};
     font-size: 10pt;
 }}
+#npVersionBtn {{
+    background: transparent;
+    border: none;
+    color: {c["primary"]};
+    font-size: 9pt;
+    padding: 4px 0;
+    text-align: left;
+}}
+#npVersionBtn:hover {{
+    color: {c["primary_hover"]};
+    text-decoration: underline;
+}}
+
+/* ── tab bar ──────────────────────────────────────────────────────── */
+#npTabBtn {{
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: {c["text_dim"]};
+    font-size: 10pt;
+    font-weight: 600;
+    padding: 6px 16px;
+}}
+#npTabBtn:checked {{
+    color: {c["primary"]};
+    border-bottom-color: {c["primary"]};
+}}
+#npTabBtn:hover {{
+    color: {c["primary"]};
+}}
+
+/* ── run dialog ────────────────────────────────────────────────────── */
+#npRunDialog {{
+    background-color: {c["bg"]};
+}}
+#npRunDialogTitle {{
+    color: {c["text"]};
+    font-size: 14pt;
+    font-weight: 700;
+}}
+#npRunDialogVersion {{
+    color: {c["text_dim"]};
+    font-size: 9pt;
+}}
+#npRunDialogDesc {{
+    color: {c["text_dim"]};
+    font-size: 10pt;
+}}
+#npRunInput {{
+    background-color: {c["surface_low"]};
+    color: {c["text"]};
+    border: 1px solid {c["card_border"]};
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-size: 10pt;
+}}
+#npRunInput:focus {{
+    border-color: {c["primary"]};
+}}
+#npBrowseBtn {{
+    background-color: {c["surface_high"]};
+    color: {c["text"]};
+    border: 1px solid {c["card_border"]};
+    border-radius: 6px;
+    font-size: 9pt;
+    padding: 6px 12px;
+}}
+#npBrowseBtn:hover {{
+    border-color: {c["primary"]};
+    color: {c["primary"]};
+}}
+#npRunCombo {{
+    background-color: {c["surface_low"]};
+    color: {c["text"]};
+    border: 1px solid {c["card_border"]};
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-size: 10pt;
+}}
+#npRunCombo:focus {{
+    border-color: {c["primary"]};
+}}
+#npRunCombo QAbstractItemView {{
+    background-color: {c["surface_low"]};
+    color: {c["text"]};
+    selection-background-color: {c["primary"]};
+    selection-color: {c["bg"]};
+}}
+#npRunCheckbox {{
+    color: {c["text"]};
+    font-size: 10pt;
+    spacing: 6px;
+}}
+#npRunCheckbox::indicator {{
+    width: 16px;
+    height: 16px;
+    border: 1px solid {c["card_border"]};
+    border-radius: 3px;
+    background-color: {c["surface_low"]};
+}}
+#npRunCheckbox::indicator:checked {{
+    background-color: {c["primary"]};
+    border-color: {c["primary"]};
+}}
+#npSubmitRunBtn {{
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 {c["primary"]}, stop:1 {c["primary_grad_end"]});
+    color: {c["bg"]};
+    border: none;
+    border-radius: 8px;
+    font-size: 10pt;
+    font-weight: bold;
+}}
+#npSubmitRunBtn:hover {{
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 {c["primary_hover"]}, stop:1 {c["primary_grad_end"]});
+}}
+QFormLayout QLabel {{
+    color: {c["text"]};
+    font-size: 9pt;
+}}
+
+/* ── log view ─────────────────────────────────────────────────────── */
+#npLogSectionLabel {{
+    color: {c["primary"]};
+    font-size: 8pt;
+    font-weight: 700;
+    letter-spacing: 1px;
+}}
+#npVersionBadge {{
+    background-color: {c["primary"]};
+    color: {c["bg"]};
+    border-radius: 4px;
+    font-size: 9pt;
+    font-weight: 700;
+    padding: 2px 8px;
+}}
+#npSessionId {{
+    color: {c["text_dim"]};
+    font-size: 9pt;
+    font-family: monospace;
+}}
+#npStatusCard {{
+    background-color: {c["surface_high"]};
+    border-radius: 8px;
+}}
+#npStatusValue {{
+    color: {c["text"]};
+    font-size: 10pt;
+    font-weight: 700;
+}}
+#npDurationValue {{
+    color: {c["text"]};
+    font-size: 10pt;
+    font-weight: 700;
+}}
+#npLogTabLabel {{
+    color: {c["primary"]};
+    font-size: 10pt;
+    font-weight: 600;
+    border-bottom: 2px solid {c["primary"]};
+    padding-bottom: 4px;
+    max-width: 60px;
+}}
+#npLogArea {{
+    background-color: {c["surface_low"]};
+    color: {c["text"]};
+    border: 1px solid {c["card_border"]};
+    border-radius: 8px;
+    font-family: monospace;
+    font-size: 9pt;
+    padding: 10px;
+}}
+#npCancelBtn {{
+    background: transparent;
+    color: #e74c3c;
+    border: 1px solid #c0392b;
+    border-radius: 8px;
+    font-size: 10pt;
+    font-weight: bold;
+}}
+#npCancelBtn:hover {{
+    background-color: rgba(231, 76, 60, 0.1);
+    border-color: #e74c3c;
+}}
+#npCancelBtn:disabled {{
+    color: {c["text_dim"]};
+    border-color: {c["card_border"]};
+}}
+#npStatusBadge {{
+    color: {c["primary"]};
+    font-size: 9pt;
+    font-weight: 700;
+}}
 
 /* ── scroll area ───────────────────────────────────────────────────── */
 QScrollArea {{
