@@ -15,11 +15,14 @@ from qgis.core import QgsMessageLog, QgsSettings, Qgis
 from qgis.PyQt.QtCore import QCoreApplication, QEvent, QObject, pyqtSignal, pyqtSlot
 
 from ..util.messages import PLUGIN_LOG_TAG as LOG_TAG
+from ..util.settings import get_control_server_url
 
 # Wake main thread without Python QEvent subclasses (unreliable with postEvent).
 _AUTH_WAKE_MAIN = QEvent.registerEventType()
 
-BASE_URL = "https://planet.nika.eco"
+
+def _base_url():
+    return get_control_server_url()
 KEYRING_ID_TOKEN = "nika-id-token"
 KEYRING_REFRESH_TOKEN = "nika-refresh-token"
 PORT_RANGE = range(9004, 9100)
@@ -252,7 +255,7 @@ class _CallbackHandler(BaseHTTPRequestHandler):
 
         self.send_response(302)
         self._cors_headers()
-        self.send_header("Location", f"{BASE_URL}/en/desktopClientLogin?success=true")
+        self.send_header("Location", f"{_base_url()}/en/desktopClientLogin?success=true")
         self.end_headers()
 
     def _cors_headers(self):
@@ -446,7 +449,7 @@ class AuthManager(QObject):
     @staticmethod
     def _fetch_user_info(id_token):
         """GET /api/auth/desktop/ping with the id_token and return the user dict."""
-        url = f"{BASE_URL}/api/auth/desktop/ping"
+        url = f"{_base_url()}/api/auth/desktop/ping"
         req = Request(url, method="GET")
         req.add_header("Authorization", f"Bearer {id_token}")
         try:
@@ -484,7 +487,7 @@ class AuthManager(QObject):
 
         # Open the browser login page.
         login_url = (
-            f"{BASE_URL}/en/desktopClientLogin?"
+            f"{_base_url()}/en/desktopClientLogin?"
             + urlencode(
                 {
                     "port": port,
@@ -544,7 +547,7 @@ class AuthManager(QObject):
     def _exchange_code(exchange_code, code_verifier):
         from urllib.error import HTTPError
 
-        url = f"{BASE_URL}/api/auth/desktop/exchange"
+        url = f"{_base_url()}/api/auth/desktop/exchange"
         payload = {"exchangeCode": exchange_code, "codeVerifier": code_verifier}
         body = json.dumps(payload).encode()
 
@@ -603,7 +606,7 @@ class AuthManager(QObject):
         refresh_token = self.get_refresh_token()
         if not refresh_token:
             return None
-        url = f"{BASE_URL}/api/auth/desktop/refresh"
+        url = f"{_base_url()}/api/auth/desktop/refresh"
         body = json.dumps({"refreshToken": refresh_token}).encode()
         req = Request(url, data=body, method="POST")
         req.add_header("Content-Type", "application/json")
