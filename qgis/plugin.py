@@ -145,6 +145,33 @@ class GeoEngineCloudPlugin:
                 "workers": workers,
             })
 
+        # Debug worker for local testing
+        tenants_data.append({
+            "name": "Debug",
+            "workers": [{
+                "id": "test",
+                "name": "test",
+                "version": "1.0",
+                "description": "Debug worker for testing",
+                "inputs": [
+                    {
+                        "name": "input_file",
+                        "type": "file",
+                        "description": "Input file",
+                        "required": True,
+                        "readonly": True,
+                    },
+                    {
+                        "name": "output_file",
+                        "type": "file",
+                        "description": "Output file",
+                        "required": True,
+                        "readonly": False,
+                    },
+                ],
+            }],
+        })
+
         self.login_panel.workers_page.set_workers_data(tenants_data)
         total = sum(len(t["workers"]) for t in tenants_data)
         QgsMessageLog.logMessage(

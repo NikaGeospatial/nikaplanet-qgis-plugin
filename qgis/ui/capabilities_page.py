@@ -47,8 +47,8 @@ class _CardWidget(QWidget):
         super().__init__(parent)
         self._key = key
         self.setObjectName("npCapCard")
-        self.setCursor(Qt.PointingHandCursor)
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(18, 16, 18, 16)
@@ -85,7 +85,7 @@ class CapabilitiesPage(QWidget):
         lay.setSpacing(12)
 
         lay.addSpacerItem(
-            QSpacerItem(0, 8, QSizePolicy.Minimum, QSizePolicy.Fixed)
+            QSpacerItem(0, 8, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
         )
 
         for info in _CARDS:

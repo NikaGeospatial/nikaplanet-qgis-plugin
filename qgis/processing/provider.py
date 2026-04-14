@@ -81,6 +81,11 @@ class GeoEngineCloudProvider(QgsProcessingProvider):
                 QgsMessageLog.logMessage(f"Response status={status}, body length={len(raw)}", PLUGIN_LOG_TAG, Qgis.Info)
                 tasks = json.loads(raw)
                 QgsMessageLog.logMessage(f"Parsed {len(tasks)} remote task(s)", PLUGIN_LOG_TAG, Qgis.Info)
+                for i, t in enumerate(tasks):
+                    QgsMessageLog.logMessage(
+                        f"  worker[{i}]: {json.dumps(t, default=str)}",
+                        PLUGIN_LOG_TAG, Qgis.Info,
+                    )
                 return tasks
         except Exception as exc:
             QgsMessageLog.logMessage(
