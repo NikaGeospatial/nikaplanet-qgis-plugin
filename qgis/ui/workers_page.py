@@ -146,7 +146,6 @@ class WorkersPage(QWidget):
     """Worker catalog and sessions dashboard."""
 
     refresh_clicked = pyqtSignal()
-    logout_clicked = pyqtSignal()
     back_clicked = pyqtSignal()
 
     def __init__(self, parent=None):
@@ -194,15 +193,6 @@ class WorkersPage(QWidget):
         refresh.setFixedSize(30, 30)
         refresh.clicked.connect(self.refresh_clicked.emit)
         tab_row.addWidget(refresh)
-
-        tab_row.addSpacing(6)
-
-        logout = QPushButton("Logout")
-        logout.setObjectName("npLogoutBtn")
-        logout.setCursor(Qt.CursorShape.PointingHandCursor)
-        logout.setFixedHeight(30)
-        logout.clicked.connect(self.logout_clicked.emit)
-        tab_row.addWidget(logout)
 
         root.addLayout(tab_row)
 

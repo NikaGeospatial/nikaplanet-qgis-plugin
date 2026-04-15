@@ -90,6 +90,26 @@ def _stylesheet(c: dict) -> str:
     min-height: 28px;
     max-height: 28px;
 }}
+#npUserChip::menu-indicator {{
+    width: 0px;
+    height: 0px;
+    image: none;
+}}
+#npUserMenu {{
+    background-color: {c["surface_low"]};
+    color: {c["text"]};
+    border: 1px solid {c["card_border"]};
+    border-radius: 6px;
+    padding: 4px 0px;
+    font-size: 9pt;
+}}
+#npUserMenu::item {{
+    padding: 6px 20px;
+}}
+#npUserMenu::item:selected {{
+    background-color: {c["surface_high"]};
+    color: {c["primary"]};
+}}
 
 /* ── login page ────────────────────────────────────────────────────── */
 #npHeading {{

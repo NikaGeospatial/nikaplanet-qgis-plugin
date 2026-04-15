@@ -4,6 +4,7 @@ from qgis.PyQt.QtWidgets import (
     QVBoxLayout,
     QHBoxLayout,
     QLabel,
+    QMenu,
     QPushButton,
     QFrame,
     QSizePolicy,
@@ -66,7 +67,6 @@ class LoginPanel(QDockWidget):
 
         self._workers_page = WorkersPage()
         self._workers_page.refresh_clicked.connect(self.refresh_workers_clicked.emit)
-        self._workers_page.logout_clicked.connect(self.logout_clicked.emit)
         self._workers_page.back_clicked.connect(
             lambda: self._stack.setCurrentIndex(PAGE_CAPABILITIES)
         )
@@ -132,7 +132,14 @@ class LoginPanel(QDockWidget):
         self._user_chip = QPushButton()
         self._user_chip.setObjectName("npUserChip")
         self._user_chip.setFixedSize(28, 28)
+        self._user_chip.setCursor(Qt.CursorShape.PointingHandCursor)
         self._user_chip.hide()
+
+        self._user_menu = QMenu(self._user_chip)
+        self._user_menu.setObjectName("npUserMenu")
+        self._user_menu.addAction("Logout", self.logout_clicked.emit)
+        self._user_chip.setMenu(self._user_menu)
+
         h.addWidget(self._user_chip)
 
         return header
