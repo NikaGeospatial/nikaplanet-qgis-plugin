@@ -22,7 +22,10 @@ _FAKE_LOGS = [
 ]
 
 
-TERMINAL_STATUSES = frozenset({"SUCCESS", "CANCELLED", "EXPIRED", "JOB_FAILED"})
+TERMINAL_STATUSES = frozenset({
+    "SUCCESS", "CANCELLED", "EXPIRED", "JOB_FAILED",
+    "UPLOAD_FAILED", "SUBMIT_FAILED",
+})
 
 
 class JobSession(QObject):
@@ -38,14 +41,17 @@ class JobSession(QObject):
         tenant_id: str,
         machine_type: str,
         input_args: list[dict],
+        worker_id: str = "",
         parent: QObject | None = None,
     ):
         super().__init__(parent)
+        self.worker_id = worker_id
         self.worker_name = worker_name
         self.version = version
         self.tenant_id = tenant_id
         self.machine_type = machine_type
         self.input_args = input_args
+        self.job_id: str | None = None
         self.session_id = f"WM-{random.randint(1000, 9999)}-ALPHA"
         self.status = "RUNNING"
         self.start_time = datetime.now()

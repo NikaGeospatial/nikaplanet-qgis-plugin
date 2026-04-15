@@ -3,3 +3,9 @@ __pycache__/
 *.pyc
 *.txt
 /stitch_nikaplanet_arcgis_qgis_plugins_ui/*
+seed/worker_versions.csv
+seed/workers.csv
+run-argo-local-setup.md
+.gitignore
+submit-worker-jobs-api-260415.md
+submit-worker-jobs-api-260414.md

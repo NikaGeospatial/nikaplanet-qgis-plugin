@@ -300,6 +300,7 @@ class WorkersPage(QWidget):
 
     def _open_session_dialog(self, session: JobSession):
         worker = {
+            "id": session.worker_id,
             "name": session.worker_name,
             "version": session.version,
             "tenantId": session.tenant_id,

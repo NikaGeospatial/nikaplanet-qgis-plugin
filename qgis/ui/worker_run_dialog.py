@@ -279,7 +279,7 @@ class WorkerRunDialog(QDialog):
                 "name": inp_def.get("name", ""),
                 "type": inp_type,
             }
-            for key in ("readonly", "required", "description", "enum_values", "default"):
+            for key in ("readonly", "required", "description", "enum_values", "default", "filetypes"):
                 if key in inp_def:
                     entry[key] = inp_def[key]
 
@@ -301,6 +301,7 @@ class WorkerRunDialog(QDialog):
             tenant_id=self._worker.get("tenantId", ""),
             machine_type=self._machine_combo.currentText(),
             input_args=schema_with_args,
+            worker_id=self._worker.get("id", ""),
         )
         self.job_submitted.emit(session)
         self._attach_session(session)
@@ -318,7 +319,8 @@ class WorkerRunDialog(QDialog):
             label_text += " *"
 
         if inp_type == "file":
-            return self._build_file_row(label_text, readonly, form)
+            filetypes = inp.get("filetypes")
+            return self._build_file_row(label_text, readonly, form, filetypes=filetypes)
         if inp_type == "folder":
             return self._build_folder_row(label_text, readonly, form)
         if inp_type == "boolean":
@@ -350,7 +352,7 @@ class WorkerRunDialog(QDialog):
         form.addRow(label_text, le)
         return le
 
-    def _build_file_row(self, label_text, readonly, form):
+    def _build_file_row(self, label_text, readonly, form, filetypes=None):
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
         le = QLineEdit()
@@ -362,10 +364,15 @@ class WorkerRunDialog(QDialog):
         browse = QPushButton("Browse")
         browse.setObjectName("npBrowseBtn")
         browse.setCursor(Qt.CursorShape.PointingHandCursor)
+        file_filter = self._build_file_filter(filetypes)
         if readonly:
-            browse.clicked.connect(lambda _=False, w=le: self._pick_open_file(w))
+            browse.clicked.connect(
+                lambda _=False, w=le, ff=file_filter: self._pick_open_file(w, ff)
+            )
         else:
-            browse.clicked.connect(lambda _=False, w=le: self._pick_save_file(w))
+            browse.clicked.connect(
+                lambda _=False, w=le, ff=file_filter: self._pick_save_file(w, ff)
+            )
         row.addWidget(browse)
         container = QWidget()
         container.setLayout(row)
@@ -396,13 +403,13 @@ class WorkerRunDialog(QDialog):
 
     # ── pickers ───────────────────────────────────────────────────
 
-    def _pick_open_file(self, le: QLineEdit):
-        path, _ = QFileDialog.getOpenFileName(self, "Select Input File")
+    def _pick_open_file(self, le: QLineEdit, file_filter: str = ""):
+        path, _ = QFileDialog.getOpenFileName(self, "Select Input File", "", file_filter)
         if path:
             le.setText(path)
 
-    def _pick_save_file(self, le: QLineEdit):
-        path, _ = QFileDialog.getSaveFileName(self, "Select Output File Location")
+    def _pick_save_file(self, le: QLineEdit, file_filter: str = ""):
+        path, _ = QFileDialog.getSaveFileName(self, "Select Output File Location", "", file_filter)
         if path:
             le.setText(path)
 
@@ -422,6 +429,17 @@ class WorkerRunDialog(QDialog):
         if isinstance(widget, QLineEdit):
             return widget.text().strip() or None
         return None
+
+    @staticmethod
+    def _build_file_filter(filetypes: list[str] | None) -> str:
+        """Build a Qt file dialog filter string from a filetypes list.
+
+        E.g. [".csv", ".geojson"] → "Supported files (*.csv *.geojson);;All files (*)"
+        """
+        if not filetypes:
+            return ""
+        exts = " ".join(f"*{ft}" for ft in filetypes)
+        return f"Supported files ({exts});;All files (*)"
 
     @staticmethod
     def _build_directory_tree(local_path: str, inp_type: str) -> list[dict] | None:
