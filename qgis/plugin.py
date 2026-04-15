@@ -2,6 +2,7 @@ from qgis.PyQt.QtWidgets import QAction, QMessageBox
 from qgis.PyQt.QtCore import Qt, QTimer
 from qgis.core import QgsMessageLog, Qgis, QgsApplication
 from .cloud.auth import AuthManager, debug_log_keyring_backends
+from .cloud.client import WorkerJobsClient
 from .util.messages import PLUGIN_LOG_TAG
 from .processing.provider import GeoEngineCloudProvider
 from .ui.login_panel import LoginPanel
@@ -13,6 +14,7 @@ class GeoEngineCloudPlugin:
         self.toolbar_action = None
         self.login_panel = None
         self.auth = AuthManager()
+        self.jobs_client = WorkerJobsClient(self.auth)
         self._user_info: dict | None = None
 
     def initGui(self):
@@ -99,6 +101,7 @@ class GeoEngineCloudPlugin:
         self.provider._authenticated = True
 
         self.login_panel.show_capabilities(username)
+        self.login_panel.workers_page.set_client(self.jobs_client)
 
         # Refresh algorithms (fetches workers for owned tenant) then
         # populate the workers page with the results + invited tenants.

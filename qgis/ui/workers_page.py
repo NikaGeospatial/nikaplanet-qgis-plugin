@@ -152,6 +152,7 @@ class WorkersPage(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._sessions: list[JobSession] = []
+        self._client = None  # WorkerJobsClient, set after login
 
         root = QVBoxLayout(self)
         root.setContentsMargins(16, 8, 16, 16)
@@ -236,6 +237,10 @@ class WorkersPage(QWidget):
 
     # ── public API ────────────────────────────────────────────────
 
+    def set_client(self, client) -> None:
+        """Inject the WorkerJobsClient after login."""
+        self._client = client
+
     def set_workers_data(self, tenants: list[dict]) -> None:
         """Populate the Catalog tab."""
         content = QWidget()
@@ -293,6 +298,7 @@ class WorkersPage(QWidget):
         dlg = WorkerRunDialog(
             worker_entry,
             stylesheet=self._get_current_stylesheet(),
+            client=self._client,
             parent=self.window(),
         )
         dlg.job_submitted.connect(self._on_job_submitted)
@@ -309,6 +315,7 @@ class WorkersPage(QWidget):
             worker,
             session=session,
             stylesheet=self._get_current_stylesheet(),
+            client=self._client,
             parent=self.window(),
         )
         dlg.exec()

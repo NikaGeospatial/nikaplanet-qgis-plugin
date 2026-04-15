@@ -32,10 +32,12 @@ class WorkerRunDialog(QDialog):
         worker: dict,
         session: JobSession | None = None,
         stylesheet: str = "",
+        client=None,
         parent=None,
     ):
         super().__init__(parent)
         self._worker = worker
+        self._client = client
         self._session = None
         self._input_widgets: list[dict] = []
 
@@ -302,6 +304,7 @@ class WorkerRunDialog(QDialog):
             machine_type=self._machine_combo.currentText(),
             input_args=schema_with_args,
             worker_id=self._worker.get("id", ""),
+            client=self._client,
         )
         self.job_submitted.emit(session)
         self._attach_session(session)

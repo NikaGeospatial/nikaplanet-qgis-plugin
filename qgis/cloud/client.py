@@ -183,6 +183,35 @@ class WorkerJobsClient:
         return data["signedUrl"]
 
 
+def upload_file_to_gcs(local_path: str, upload_url: str) -> None:
+    """PUT a local file to a GCS signed resumable URL.
+
+    For files that fit in memory this does a single PUT.  Very large files
+    would benefit from chunked resumable uploads, but for an initial
+    implementation this is sufficient.
+    """
+    import os
+
+    size = os.path.getsize(local_path)
+    with open(local_path, "rb") as f:
+        req = urllib.request.Request(upload_url, data=f, method="PUT")
+        req.add_header("Content-Type", "application/octet-stream")
+        req.add_header("Content-Length", str(size))
+        # Use a generous timeout scaled to file size (min 60 s, ~1 MB/s).
+        timeout = max(60, size // (1024 * 1024) * 2)
+        urllib.request.urlopen(req, timeout=timeout)
+
+
+def resolve_local_path(args: str, entry_path: str) -> str:
+    """Map a directoryTree ``path`` back to an absolute local file.
+
+    Works for both file and folder inputs because ``_build_directory_tree``
+    in the UI creates paths relative to ``os.path.dirname(args)``.
+    """
+    import os
+    return os.path.join(os.path.dirname(args.rstrip(os.sep)), entry_path)
+
+
 class ApiError(Exception):
     """Raised when the API returns an HTTP error."""
 
