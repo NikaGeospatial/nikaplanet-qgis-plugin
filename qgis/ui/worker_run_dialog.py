@@ -89,7 +89,7 @@ class WorkerRunDialog(QDialog):
             lay.addWidget(d)
 
         form = QFormLayout()
-        form.setRowWrapPolicy(QFormLayout.WrapAllRows)
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
         form.setSpacing(6)
         form.setContentsMargins(0, 4, 0, 4)
 
@@ -114,7 +114,7 @@ class WorkerRunDialog(QDialog):
 
         submit = QPushButton("Submit Run")
         submit.setObjectName("npSubmitRunBtn")
-        submit.setCursor(Qt.PointingHandCursor)
+        submit.setCursor(Qt.CursorShape.PointingHandCursor)
         submit.setFixedHeight(40)
         submit.clicked.connect(self._on_submit)
         lay.addWidget(submit)
@@ -155,11 +155,11 @@ class WorkerRunDialog(QDialog):
         right.setSpacing(2)
         sid_title = QLabel("SESSION ID")
         sid_title.setObjectName("npLogSectionLabel")
-        sid_title.setAlignment(Qt.AlignRight)
+        sid_title.setAlignment(Qt.AlignmentFlag.AlignRight)
         right.addWidget(sid_title)
         self._sid_lbl = QLabel("")
         self._sid_lbl.setObjectName("npSessionId")
-        self._sid_lbl.setAlignment(Qt.AlignRight)
+        self._sid_lbl.setAlignment(Qt.AlignmentFlag.AlignRight)
         right.addWidget(self._sid_lbl)
 
         header.addLayout(right)
@@ -213,7 +213,7 @@ class WorkerRunDialog(QDialog):
         # cancel button
         self._cancel_btn = QPushButton("CANCEL SESSION")
         self._cancel_btn.setObjectName("npCancelBtn")
-        self._cancel_btn.setCursor(Qt.PointingHandCursor)
+        self._cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._cancel_btn.setFixedHeight(40)
         self._cancel_btn.clicked.connect(self._on_cancel)
         lay.addWidget(self._cancel_btn)
@@ -361,7 +361,7 @@ class WorkerRunDialog(QDialog):
         row.addWidget(le, 1)
         browse = QPushButton("Browse")
         browse.setObjectName("npBrowseBtn")
-        browse.setCursor(Qt.PointingHandCursor)
+        browse.setCursor(Qt.CursorShape.PointingHandCursor)
         if readonly:
             browse.clicked.connect(lambda _=False, w=le: self._pick_open_file(w))
         else:
@@ -386,7 +386,7 @@ class WorkerRunDialog(QDialog):
         if readonly:
             browse = QPushButton("Browse")
             browse.setObjectName("npBrowseBtn")
-            browse.setCursor(Qt.PointingHandCursor)
+            browse.setCursor(Qt.CursorShape.PointingHandCursor)
             browse.clicked.connect(lambda _=False, w=le: self._pick_folder(w))
             row.addWidget(browse)
         container = QWidget()

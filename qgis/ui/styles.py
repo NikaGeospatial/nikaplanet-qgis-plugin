@@ -6,25 +6,25 @@
 # ── colour tokens ──────────────────────────────────────────────────────
 
 DARK = {
-    "bg":               "#0c1220",
-    "surface":          "#05151d",
-    "surface_low":      "#0d1e25",
-    "surface_high":     "#1c2c34",
-    "surface_highest":  "#27373f",
+    "bg":               "#003646",
+    "surface":          "#002d3b",
+    "surface_low":      "#003d50",
+    "surface_high":     "#0a4d5e",
+    "surface_highest":  "#165c6e",
     "on_surface":       "#d4e5f0",
-    "on_surface_dim":   "#6a7a90",
-    "primary":          "#4ecdc4",
-    "primary_grad_end": "#6de0d4",
-    "primary_dark":     "#006863",
-    "primary_hover":    "#7eeee6",
-    "accent":           "#4bdbd1",
-    "card_bg":          "#0d1e25",
-    "card_border":      "rgba(63,73,72,0.15)",
+    "on_surface_dim":   "#6a8a9a",
+    "primary":          "#d6ff5a",
+    "primary_grad_end": "#e2ff8a",
+    "primary_dark":     "#6b8f00",
+    "primary_hover":    "#e8ffaa",
+    "accent":           "#d6ff5a",
+    "card_bg":          "#003d50",
+    "card_border":      "rgba(63,90,80,0.20)",
     "text":             "#e8ecf2",
-    "text_dim":         "#6a7a90",
-    "divider":          "rgba(78,205,196,0.25)",
+    "text_dim":         "#6a8a9a",
+    "divider":          "rgba(214,255,90,0.25)",
     "btn_outline_fg":   "#d4e5f0",
-    "btn_outline_bdr":  "rgba(63,73,72,0.35)",
+    "btn_outline_bdr":  "rgba(63,90,80,0.35)",
 }
 
 LIGHT = {
@@ -35,16 +35,16 @@ LIGHT = {
     "surface_highest":  "#dadce0",
     "on_surface":       "#1a1a1a",
     "on_surface_dim":   "#6b7280",
-    "primary":          "#3b82f6",
-    "primary_grad_end": "#60a5fa",
-    "primary_dark":     "#1d4ed8",
-    "primary_hover":    "#93c5fd",
-    "accent":           "#3b82f6",
+    "primary":          "#4a7a00",
+    "primary_grad_end": "#6b9f00",
+    "primary_dark":     "#003646",
+    "primary_hover":    "#8fbf30",
+    "accent":           "#4a7a00",
     "card_bg":          "#ffffff",
     "card_border":      "rgba(0,0,0,0.10)",
     "text":             "#1a1a1a",
     "text_dim":         "#6b7280",
-    "divider":          "rgba(0,0,0,0.08)",
+    "divider":          "rgba(74,122,0,0.15)",
     "btn_outline_fg":   "#1a1a1a",
     "btn_outline_bdr":  "rgba(0,0,0,0.18)",
 }
@@ -193,11 +193,6 @@ def _stylesheet(c: dict) -> str:
     border: none;
     color: {c["text_dim"]};
     font-size: 12pt;
-}}
-#npVersionLabel {{
-    color: {c["text_dim"]};
-    font-size: 9pt;
-    padding: 3px 0;
 }}
 #npVersionSep {{
     background-color: {c["divider"]};

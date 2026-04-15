@@ -15,21 +15,25 @@ from qgis.core import QgsMessageLog, QgsSettings, Qgis
 from qgis.PyQt.QtCore import QCoreApplication, QEvent, QObject, pyqtSignal, pyqtSlot
 
 from ..util.messages import PLUGIN_LOG_TAG as LOG_TAG
+from ..util.settings import get_control_server_url
 
 # Wake main thread without Python QEvent subclasses (unreliable with postEvent).
 _AUTH_WAKE_MAIN = QEvent.registerEventType()
 
-BASE_URL = "https://planet.nika.eco"
-KEYRING_SERVICE = "Geoengine + plugins"
+
+def _base_url():
+    return get_control_server_url()
 KEYRING_ID_TOKEN = "nika-id-token"
 KEYRING_REFRESH_TOKEN = "nika-refresh-token"
 PORT_RANGE = range(9004, 9100)
 LOGIN_TIMEOUT = 300  # seconds
 
-# QgsSettings keys (fallback when keyring is unavailable)
+# QgsSettings keys (fallback when keyring is unavailable, and user info)
 _QS_PREFIX = "geoengine_cloud/"
 _QS_ID_TOKEN = _QS_PREFIX + "id_token"
 _QS_REFRESH_TOKEN = _QS_PREFIX + "refresh_token"
+_QS_USER_INFO = _QS_PREFIX + "user_info"
+_KEYRING_USERNAME = "nikauser"
 
 
 # ---------------------------------------------------------------------------
@@ -127,20 +131,24 @@ def debug_log_keyring_backends():
 # ---------------------------------------------------------------------------
 
 class _KeyringStore:
-    """Store tokens in the OS keyring via the keyring library."""
+    """Store tokens in the OS keyring, keyed by (service=entry_name, user=_KEYRING_USERNAME).
+
+    Matches the Rust ``keyring::Entry::new(entry, username)`` convention used
+    by the GeoEngine CLI so both applications share the same credentials.
+    """
 
     def __init__(self, kr):
         self._kr = kr
 
     def get(self, key):
-        return self._kr.get_password(KEYRING_SERVICE, key)
+        return self._kr.get_password(key, _KEYRING_USERNAME)
 
     def set(self, key, value):
-        self._kr.set_password(KEYRING_SERVICE, key, value)
+        self._kr.set_password(key, _KEYRING_USERNAME, value)
 
     def delete(self, key):
         try:
-            self._kr.delete_password(KEYRING_SERVICE, key)
+            self._kr.delete_password(key, _KEYRING_USERNAME)
         except self._kr.errors.PasswordDeleteError:
             pass
 
@@ -247,7 +255,7 @@ class _CallbackHandler(BaseHTTPRequestHandler):
 
         self.send_response(302)
         self._cors_headers()
-        self.send_header("Location", f"{BASE_URL}/en/desktopClientLogin?success=true")
+        self.send_header("Location", f"{_base_url()}/en/desktopClientLogin?success=true")
         self.end_headers()
 
     def _cors_headers(self):
@@ -312,18 +320,9 @@ class AuthManager(QObject):
             )
             return
 
-        _dbg_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "login_debug.txt")
-        try:
-            with open(_dbg_path, "w") as f:
-                f.write(f"Exchange response keys: {list(tokens.keys())}\n")
-                f.write(f"Has idToken: {'idToken' in tokens}\n")
-                f.write(f"Has user: {'user' in tokens}\n")
-                if "user" in tokens:
-                    f.write(f"User: {tokens['user']}\n")
-        except OSError as exc:
-            QgsMessageLog.logMessage(
-                f"Could not write login_debug.txt: {exc}", LOG_TAG, Qgis.Warning,
-            )
+        user_payload = tokens.get("user") or {}
+        if not isinstance(user_payload, dict):
+            user_payload = {}
 
         id_token = tokens.get("idToken")
         refresh_token = tokens.get("refreshToken")
@@ -339,9 +338,13 @@ class AuthManager(QObject):
             self.login_failed.emit(f"Could not save tokens: {exc}")
             return
 
-        user_payload = tokens.get("user") or {}
-        if not isinstance(user_payload, dict):
-            user_payload = {}
+        try:
+            QgsSettings().setValue(_QS_USER_INFO, json.dumps(user_payload))
+        except Exception as exc:
+            QgsMessageLog.logMessage(
+                f"Could not persist user info: {exc}", LOG_TAG, Qgis.Warning,
+            )
+
         QgsMessageLog.logMessage(
             f"Login complete (user keys: {list(user_payload.keys())})", LOG_TAG, Qgis.Info,
         )
@@ -370,12 +373,96 @@ class AuthManager(QObject):
             return token
         return self._refresh_id_token()
 
+    def try_restore_session(self) -> dict | None:
+        """Check for stored tokens and return user info if session is valid.
+
+        Returns the user info dict if a valid session was restored, or None.
+        """
+        QgsMessageLog.logMessage(
+            "Checking keyring for existing session\u2026", LOG_TAG, Qgis.Info,
+        )
+
+        id_token = self.get_id_token()
+        if not id_token:
+            QgsMessageLog.logMessage(
+                "No stored ID token found — no session to restore", LOG_TAG, Qgis.Info,
+            )
+            return None
+
+        if self._is_token_expired(id_token):
+            QgsMessageLog.logMessage(
+                "Stored ID token is expired, attempting refresh\u2026", LOG_TAG, Qgis.Info,
+            )
+            id_token = self._refresh_id_token()
+            if not id_token:
+                QgsMessageLog.logMessage(
+                    "Token refresh failed — session not restored", LOG_TAG, Qgis.Warning,
+                )
+                return None
+            QgsMessageLog.logMessage(
+                "Token refreshed successfully", LOG_TAG, Qgis.Info,
+            )
+        else:
+            QgsMessageLog.logMessage(
+                "Stored ID token is still valid", LOG_TAG, Qgis.Info,
+            )
+
+        user = None
+        raw = QgsSettings().value(_QS_USER_INFO, None)
+        if raw:
+            try:
+                user = json.loads(raw)
+                if not isinstance(user, dict) or not user.get("username"):
+                    user = None
+            except (json.JSONDecodeError, ValueError):
+                user = None
+
+        # Tokens may have been written by the GeoEngine CLI, which doesn't
+        # populate QgsSettings.  Fall back to the server ping endpoint.
+        if user is None:
+            QgsMessageLog.logMessage(
+                "No stored user info — fetching from server\u2026", LOG_TAG, Qgis.Info,
+            )
+            user = self._fetch_user_info(id_token)
+            if user:
+                QgsSettings().setValue(_QS_USER_INFO, json.dumps(user))
+
+        if not user:
+            QgsMessageLog.logMessage(
+                "Could not obtain user info — session not restored", LOG_TAG, Qgis.Warning,
+            )
+            return None
+
+        QgsMessageLog.logMessage(
+            f"Session restored for {user['username']}", LOG_TAG, Qgis.Info,
+        )
+        return user
+
     def logout(self):
-        """Delete stored tokens."""
+        """Delete stored tokens and user info."""
         _store.delete(KEYRING_ID_TOKEN)
         _store.delete(KEYRING_REFRESH_TOKEN)
+        QgsSettings().remove(_QS_USER_INFO)
 
     # ---- internals ---------------------------------------------------------
+
+    @staticmethod
+    def _fetch_user_info(id_token):
+        """GET /api/auth/desktop/ping with the id_token and return the user dict."""
+        url = f"{_base_url()}/api/auth/desktop/ping"
+        req = Request(url, method="GET")
+        req.add_header("Authorization", f"Bearer {id_token}")
+        try:
+            with urlopen(req, timeout=15) as resp:
+                data = json.loads(resp.read())
+                user = data.get("user")
+                if isinstance(user, dict) and user.get("username"):
+                    return user
+        except Exception as exc:
+            QgsMessageLog.logMessage(
+                f"Failed to fetch user info from server: {exc}", LOG_TAG, Qgis.Warning,
+            )
+        return None
 
     def _login_flow(self):
         code_verifier, code_challenge, state = _generate_pkce()
@@ -400,7 +487,7 @@ class AuthManager(QObject):
 
         # Open the browser login page.
         login_url = (
-            f"{BASE_URL}/en/desktopClientLogin?"
+            f"{_base_url()}/en/desktopClientLogin?"
             + urlencode(
                 {
                     "port": port,
@@ -460,7 +547,7 @@ class AuthManager(QObject):
     def _exchange_code(exchange_code, code_verifier):
         from urllib.error import HTTPError
 
-        url = f"{BASE_URL}/api/auth/desktop/exchange"
+        url = f"{_base_url()}/api/auth/desktop/exchange"
         payload = {"exchangeCode": exchange_code, "codeVerifier": code_verifier}
         body = json.dumps(payload).encode()
 
@@ -519,7 +606,7 @@ class AuthManager(QObject):
         refresh_token = self.get_refresh_token()
         if not refresh_token:
             return None
-        url = f"{BASE_URL}/api/auth/desktop/refresh"
+        url = f"{_base_url()}/api/auth/desktop/refresh"
         body = json.dumps({"refreshToken": refresh_token}).encode()
         req = Request(url, data=body, method="POST")
         req.add_header("Content-Type", "application/json")

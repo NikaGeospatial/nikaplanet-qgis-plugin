@@ -38,6 +38,9 @@ class GeoEngineCloudPlugin:
         self.initProcessing()
         debug_log_keyring_backends()
 
+        # Auto-restore session if tokens are already in keyring
+        QTimer.singleShot(0, self._try_auto_login)
+
     def initProcessing(self):
         self.provider = GeoEngineCloudProvider(self.auth)
         QgsApplication.processingRegistry().addProvider(self.provider)
@@ -56,9 +59,28 @@ class GeoEngineCloudPlugin:
         else:
             self.login_panel.show()
 
+    # ── auto-login ─────────────────────────────────────────────────
+
+    def _try_auto_login(self):
+        """Check keyring for existing tokens and skip to capabilities if valid."""
+        user = self.auth.try_restore_session()
+        if user:
+            self._on_login_success(user)
+
     # ── auth callbacks ─────────────────────────────────────────────
 
     def _on_sign_in(self):
+        self.login_panel.set_sign_in_loading(True)
+        QTimer.singleShot(0, self._sign_in_check)
+
+    def _sign_in_check(self):
+        # If the GeoEngine CLI (or a previous session) left tokens in the
+        # keyring, skip the browser flow and go straight to capabilities.
+        user = self.auth.try_restore_session()
+        if user:
+            self._on_login_success(user)
+            return
+        self.login_panel.set_sign_in_loading(False)
         QgsMessageLog.logMessage(
             "Starting GeoEngine login\u2026", PLUGIN_LOG_TAG, Qgis.Info
         )
@@ -122,6 +144,33 @@ class GeoEngineCloudPlugin:
                 "name": inv.get("name", "Team"),
                 "workers": workers,
             })
+
+        # Debug worker for local testing
+        tenants_data.append({
+            "name": "Debug",
+            "workers": [{
+                "id": "test",
+                "name": "test",
+                "version": "1.0",
+                "description": "Debug worker for testing",
+                "inputs": [
+                    {
+                        "name": "input_file",
+                        "type": "file",
+                        "description": "Input file",
+                        "required": True,
+                        "readonly": True,
+                    },
+                    {
+                        "name": "output_file",
+                        "type": "file",
+                        "description": "Output file",
+                        "required": True,
+                        "readonly": False,
+                    },
+                ],
+            }],
+        })
 
         self.login_panel.workers_page.set_workers_data(tenants_data)
         total = sum(len(t["workers"]) for t in tenants_data)

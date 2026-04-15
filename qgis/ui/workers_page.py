@@ -49,9 +49,9 @@ class _WorkerCard(QWidget):
         self._chevron = QPushButton()
         self._chevron.setObjectName("npChevron")
         self._chevron.setFixedSize(28, 28)
-        self._chevron.setCursor(Qt.PointingHandCursor)
+        self._chevron.setCursor(Qt.CursorShape.PointingHandCursor)
         self._chevron.clicked.connect(self._toggle)
-        header.addWidget(self._chevron, 0, Qt.AlignTop)
+        header.addWidget(self._chevron, 0, Qt.AlignmentFlag.AlignTop)
 
         outer.addLayout(header)
 
@@ -81,7 +81,7 @@ class _WorkerCard(QWidget):
 
             select_btn = QPushButton("Select this version")
             select_btn.setObjectName("npVersionBtn")
-            select_btn.setCursor(Qt.PointingHandCursor)
+            select_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             select_btn.clicked.connect(
                 lambda _=False, e=entry: self.run_requested.emit(e)
             )
@@ -112,7 +112,7 @@ class _SubmittedJobCard(QWidget):
         super().__init__(parent)
         self._session = session
         self.setObjectName("npWorkerCard")
-        self.setCursor(Qt.PointingHandCursor)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
 
         lay = QHBoxLayout(self)
         lay.setContentsMargins(14, 10, 14, 10)
@@ -129,7 +129,7 @@ class _SubmittedJobCard(QWidget):
 
         self._status_lbl = QLabel(session.status)
         self._status_lbl.setObjectName("npStatusBadge")
-        lay.addWidget(self._status_lbl, 0, Qt.AlignVCenter)
+        lay.addWidget(self._status_lbl, 0, Qt.AlignmentFlag.AlignVCenter)
 
         session.status_changed.connect(self._on_status_changed)
 
@@ -137,7 +137,7 @@ class _SubmittedJobCard(QWidget):
         self._status_lbl.setText(status)
 
     def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
+        if event.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit()
         super().mousePressEvent(event)
 
@@ -160,10 +160,10 @@ class WorkersPage(QWidget):
         # back button
         back_btn = QPushButton("\u2190  Back")
         back_btn.setObjectName("npBackBtn")
-        back_btn.setCursor(Qt.PointingHandCursor)
+        back_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         back_btn.setFixedHeight(24)
         back_btn.clicked.connect(self.back_clicked.emit)
-        root.addWidget(back_btn, 0, Qt.AlignLeft)
+        root.addWidget(back_btn, 0, Qt.AlignmentFlag.AlignLeft)
 
         # tab bar + action buttons in one row
         tab_row = QHBoxLayout()
@@ -173,14 +173,14 @@ class WorkersPage(QWidget):
         self._workers_tab_btn.setObjectName("npTabBtn")
         self._workers_tab_btn.setCheckable(True)
         self._workers_tab_btn.setChecked(True)
-        self._workers_tab_btn.setCursor(Qt.PointingHandCursor)
+        self._workers_tab_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._workers_tab_btn.clicked.connect(lambda: self._switch_tab(0))
         tab_row.addWidget(self._workers_tab_btn)
 
         self._submitted_tab_btn = QPushButton("SESSIONS")
         self._submitted_tab_btn.setObjectName("npTabBtn")
         self._submitted_tab_btn.setCheckable(True)
-        self._submitted_tab_btn.setCursor(Qt.PointingHandCursor)
+        self._submitted_tab_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._submitted_tab_btn.clicked.connect(lambda: self._switch_tab(1))
         tab_row.addWidget(self._submitted_tab_btn)
 
@@ -189,7 +189,7 @@ class WorkersPage(QWidget):
         refresh = QPushButton("\u21BB")
         refresh.setObjectName("npRefreshBtn")
         refresh.setToolTip("Refresh workers")
-        refresh.setCursor(Qt.PointingHandCursor)
+        refresh.setCursor(Qt.CursorShape.PointingHandCursor)
         refresh.setFixedSize(30, 30)
         refresh.clicked.connect(self.refresh_clicked.emit)
         tab_row.addWidget(refresh)
@@ -198,7 +198,7 @@ class WorkersPage(QWidget):
 
         logout = QPushButton("Logout")
         logout.setObjectName("npLogoutBtn")
-        logout.setCursor(Qt.PointingHandCursor)
+        logout.setCursor(Qt.CursorShape.PointingHandCursor)
         logout.setFixedHeight(30)
         logout.clicked.connect(self.logout_clicked.emit)
         tab_row.addWidget(logout)
@@ -211,17 +211,17 @@ class WorkersPage(QWidget):
         # index 0: workers scroll
         self._workers_scroll = QScrollArea()
         self._workers_scroll.setWidgetResizable(True)
-        self._workers_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._workers_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         empty = QLabel("No workers loaded yet.")
         empty.setObjectName("npEmptyLabel")
-        empty.setAlignment(Qt.AlignCenter)
+        empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._workers_scroll.setWidget(empty)
         self._content_stack.addWidget(self._workers_scroll)
 
         # index 1: submitted scroll
         self._submitted_scroll = QScrollArea()
         self._submitted_scroll.setWidgetResizable(True)
-        self._submitted_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._submitted_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._content_stack.addWidget(self._submitted_scroll)
         self._rebuild_submitted_list()
 
@@ -264,13 +264,13 @@ class WorkersPage(QWidget):
                 lay.addWidget(card)
 
             lay.addSpacerItem(
-                QSpacerItem(0, 4, QSizePolicy.Minimum, QSizePolicy.Fixed)
+                QSpacerItem(0, 4, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
             )
 
         if not any_workers:
             empty_lbl = QLabel("No workers found for any team.")
             empty_lbl.setObjectName("npEmptyLabel")
-            empty_lbl.setAlignment(Qt.AlignCenter)
+            empty_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             lay.addWidget(empty_lbl)
 
         lay.addStretch(1)
@@ -336,7 +336,7 @@ class WorkersPage(QWidget):
         if not self._sessions:
             empty = QLabel("No submitted sessions yet.")
             empty.setObjectName("npEmptyLabel")
-            empty.setAlignment(Qt.AlignCenter)
+            empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
             lay.addWidget(empty)
         else:
             for session in reversed(self._sessions):

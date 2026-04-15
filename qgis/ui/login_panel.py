@@ -35,7 +35,8 @@ class LoginPanel(QDockWidget):
             | Qt.DockWidgetArea.RightDockWidgetArea
         )
         self.setFeatures(
-            QDockWidget.DockWidgetClosable | QDockWidget.DockWidgetMovable
+            QDockWidget.DockWidgetFeature.DockWidgetClosable
+            | QDockWidget.DockWidgetFeature.DockWidgetMovable
         )
 
         self._dark_mode = True
@@ -82,7 +83,14 @@ class LoginPanel(QDockWidget):
     def show_login(self):
         self._username = None
         self._user_chip.hide()
+        self.set_sign_in_loading(False)
         self._stack.setCurrentIndex(PAGE_LOGIN)
+
+    def set_sign_in_loading(self, loading: bool):
+        self._sign_in_btn.setEnabled(not loading)
+        self._sign_in_btn.setText(
+            "CHECKING\u2026" if loading else "\u2192   SIGN IN WITH NIKAPLANET"
+        )
 
     def show_capabilities(self, username: str | None = None):
         if username:
@@ -117,7 +125,7 @@ class LoginPanel(QDockWidget):
         self._theme_btn = QPushButton()
         self._theme_btn.setObjectName("npThemeToggle")
         self._theme_btn.setFixedSize(32, 32)
-        self._theme_btn.setCursor(Qt.PointingHandCursor)
+        self._theme_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._theme_btn.clicked.connect(self._toggle_theme)
         h.addWidget(self._theme_btn)
 
@@ -138,15 +146,15 @@ class LoginPanel(QDockWidget):
         lay.setSpacing(0)
 
         lay.addSpacerItem(
-            QSpacerItem(0, 30, QSizePolicy.Minimum, QSizePolicy.Expanding)
+            QSpacerItem(0, 30, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding)
         )
 
         # logo
         logo = QLabel()
-        logo.setAlignment(Qt.AlignCenter)
-        logo.setTextFormat(Qt.RichText)
+        logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        logo.setTextFormat(Qt.TextFormat.RichText)
         logo.setText(
-            '<span style="font-size:22pt; font-weight:600; color:#4ecdc4;">'
+            '<span style="font-size:22pt; font-weight:600; color:#d6ff5a;">'
             "\U0001f6f0\ufe0f  NikaPlanet</span>"
         )
         lay.addWidget(logo)
@@ -155,14 +163,14 @@ class LoginPanel(QDockWidget):
         # teal divider
         divider = QFrame()
         divider.setFixedSize(40, 2)
-        divider.setStyleSheet("background-color: #4ecdc4;")
-        lay.addWidget(divider, alignment=Qt.AlignCenter)
+        divider.setStyleSheet("background-color: #d6ff5a;")
+        lay.addWidget(divider, alignment=Qt.AlignmentFlag.AlignCenter)
         lay.addSpacing(20)
 
         # heading
         heading = QLabel("Sign in to access your\ngeospatial workspace.")
         heading.setObjectName("npHeading")
-        heading.setAlignment(Qt.AlignCenter)
+        heading.setAlignment(Qt.AlignmentFlag.AlignCenter)
         heading.setWordWrap(True)
         lay.addWidget(heading)
         lay.addSpacing(12)
@@ -173,22 +181,22 @@ class LoginPanel(QDockWidget):
             "tools for the modern explorer."
         )
         subtitle.setObjectName("npSubtitle")
-        subtitle.setAlignment(Qt.AlignCenter)
+        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
         subtitle.setWordWrap(True)
         lay.addWidget(subtitle)
         lay.addSpacing(32)
 
         # sign-in button
-        btn = QPushButton("\u2192   SIGN IN WITH NIKAPLANET")
-        btn.setObjectName("npSignIn")
-        btn.setCursor(Qt.PointingHandCursor)
-        btn.setFixedHeight(48)
-        btn.setMinimumWidth(240)
-        btn.clicked.connect(self.sign_in_clicked.emit)
-        lay.addWidget(btn, alignment=Qt.AlignCenter)
+        self._sign_in_btn = QPushButton("\u2192   SIGN IN WITH NIKAPLANET")
+        self._sign_in_btn.setObjectName("npSignIn")
+        self._sign_in_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._sign_in_btn.setFixedHeight(48)
+        self._sign_in_btn.setMinimumWidth(240)
+        self._sign_in_btn.clicked.connect(self.sign_in_clicked.emit)
+        lay.addWidget(self._sign_in_btn, alignment=Qt.AlignmentFlag.AlignCenter)
 
         lay.addSpacerItem(
-            QSpacerItem(0, 30, QSizePolicy.Minimum, QSizePolicy.Expanding)
+            QSpacerItem(0, 30, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding)
         )
 
         # footer
@@ -205,12 +213,12 @@ class LoginPanel(QDockWidget):
 
         links = QLabel("LEGAL     PRIVACY")
         links.setObjectName("npFooterLinks")
-        links.setAlignment(Qt.AlignCenter)
+        links.setAlignment(Qt.AlignmentFlag.AlignCenter)
         v.addWidget(links)
 
         version = QLabel("VERSION 4.2.0-ALPHA")
         version.setObjectName("npFooterVersion")
-        version.setAlignment(Qt.AlignCenter)
+        version.setAlignment(Qt.AlignmentFlag.AlignCenter)
         v.addWidget(version)
 
         return footer

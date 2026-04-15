@@ -81,13 +81,45 @@ class GeoEngineCloudProvider(QgsProcessingProvider):
                 QgsMessageLog.logMessage(f"Response status={status}, body length={len(raw)}", PLUGIN_LOG_TAG, Qgis.Info)
                 tasks = json.loads(raw)
                 QgsMessageLog.logMessage(f"Parsed {len(tasks)} remote task(s)", PLUGIN_LOG_TAG, Qgis.Info)
-                return tasks
+                for i, t in enumerate(tasks):
+                    QgsMessageLog.logMessage(
+                        f"  worker[{i}]: {json.dumps(t, default=str)}",
+                        PLUGIN_LOG_TAG, Qgis.Info,
+                    )
+                return self._flatten_workers(tasks)
         except Exception as exc:
             QgsMessageLog.logMessage(
                 f"Could not fetch remote tasks from {url}: {exc}",
                 PLUGIN_LOG_TAG, Qgis.Warning,
             )
             return []
+
+    @staticmethod
+    def _flatten_workers(tasks: list[dict]) -> list[dict]:
+        """Flatten nested API response into one entry per version."""
+        flat = []
+        for worker in tasks:
+            versions = worker.get("versions", [])
+            for ver in versions:
+                schema = ver.get("input_schema") or {}
+                flat.append({
+                    "id": worker.get("id"),
+                    "name": worker.get("name"),
+                    "description": ver.get("description") or worker.get("description", ""),
+                    "version": ver.get("version_tag"),
+                    "tenantId": worker.get("tenant_id"),
+                    "tenantName": worker.get("tenant_name"),
+                    "planFeatures": worker.get("plan_features"),
+                    "visibility": worker.get("visibility"),
+                    "owner": worker.get("owner"),
+                    "versionId": ver.get("id"),
+                    "program": ver.get("program"),
+                    "script": ver.get("script"),
+                    "inputs": schema.get("inputs", []),
+                    "dirMounts": ver.get("dir_mounts"),
+                    "imageDigest": ver.get("image_digest"),
+                })
+        return flat
 
     def id(self):
         """Return unique provider id."""
