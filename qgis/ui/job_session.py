@@ -169,7 +169,62 @@ class JobSession(QObject):
 
         if job.status in TERMINAL_STATUSES:
             self._poll_timer.stop()
-            self._try_fetch_full_log()
+            threading.Thread(
+                target=self._on_terminal, args=(job,), daemon=True,
+            ).start()
+
+    # ── terminal-state handling (background thread) ──────────────
+
+    def _on_terminal(self, job):
+        """Download outputs on SUCCESS, then try to fetch the full log."""
+        if job.status == "SUCCESS":
+            self._download_outputs(job)
+        self._try_fetch_full_log()
+
+    def _download_outputs(self, job):
+        """Download output files to the local paths the user chose."""
+        import os
+        from ..cloud.client import download_file
+
+        if not job.outputFiles:
+            self._emit_log("[INFO]  No output files to download.")
+            return
+
+        # Build a map: output filename → local save path from input_args.
+        # Output file entries have type="file", readonly=False, args=local path.
+        output_map: dict[str, str] = {}
+        fallback_dir: str | None = None
+        for entry in self.input_args:
+            if (
+                entry.get("type") == "file"
+                and entry.get("readonly") is False
+                and entry.get("args")
+            ):
+                local_path = entry["args"]
+                filename = os.path.basename(local_path)
+                output_map[filename] = local_path
+                if fallback_dir is None:
+                    fallback_dir = os.path.dirname(local_path)
+
+        self._emit_log(f"[INFO]  Downloading {len(job.outputFiles)} output file(s)\u2026")
+
+        for i, out_file in enumerate(job.outputFiles, 1):
+            if self._cancelled:
+                return
+            local_path = output_map.get(out_file.name)
+            if not local_path and fallback_dir:
+                local_path = os.path.join(fallback_dir, out_file.name)
+            if not local_path:
+                self._emit_log(f"[WARN]  Skipping {out_file.name} (no local save path)")
+                continue
+            try:
+                self._emit_log(f"[INFO]  [{i}/{len(job.outputFiles)}] {out_file.name}")
+                download_file(out_file.url, local_path)
+                self._emit_log(f"[INFO]  Saved: {local_path}")
+            except Exception as exc:
+                self._emit_log(f"[ERROR] Failed to download {out_file.name}: {exc}")
+
+        self._emit_log("[INFO]  Download complete.")
 
     def _try_fetch_full_log(self):
         """Attempt to fetch the full archived log after a terminal state."""

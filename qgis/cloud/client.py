@@ -202,6 +202,21 @@ def upload_file_to_gcs(local_path: str, upload_url: str) -> None:
         urllib.request.urlopen(req, timeout=timeout)
 
 
+def download_file(url: str, local_path: str) -> None:
+    """Download a file from a signed URL to a local path."""
+    import os
+
+    os.makedirs(os.path.dirname(local_path), exist_ok=True)
+    req = urllib.request.Request(url, method="GET")
+    with urllib.request.urlopen(req, timeout=300) as resp:
+        with open(local_path, "wb") as f:
+            while True:
+                chunk = resp.read(1024 * 1024)
+                if not chunk:
+                    break
+                f.write(chunk)
+
+
 def resolve_local_path(args: str, entry_path: str) -> str:
     """Map a directoryTree ``path`` back to an absolute local file.
 
