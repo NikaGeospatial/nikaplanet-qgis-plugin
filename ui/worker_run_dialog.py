@@ -4,6 +4,7 @@ import os
 import threading
 
 from qgis.PyQt.QtWidgets import (
+    QAbstractItemView,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -12,11 +13,13 @@ from qgis.PyQt.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMenu,
     QPlainTextEdit,
     QPushButton,
-    QScrollArea,
     QStackedWidget,
     QTabWidget,
+    QTreeWidget,
+    QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -212,16 +215,21 @@ class WorkerRunDialog(QDialog):
         self._detail_tabs.addTab(self._log_text, "Log")
 
         # -- Outputs tab --
-        self._outputs_scroll = QScrollArea()
-        self._outputs_scroll.setWidgetResizable(True)
-        self._outputs_scroll.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        self._outputs_tree = QTreeWidget()
+        self._outputs_tree.setObjectName("npOutputsTree")
+        self._outputs_tree.setHeaderLabels(["Name", "Size"])
+        self._outputs_tree.setRootIsDecorated(False)
+        self._outputs_tree.setSelectionMode(
+            QAbstractItemView.SelectionMode.ExtendedSelection
         )
-        empty_outputs = QLabel("Outputs will appear here when the job completes.")
-        empty_outputs.setObjectName("npEmptyLabel")
-        empty_outputs.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._outputs_scroll.setWidget(empty_outputs)
-        self._detail_tabs.addTab(self._outputs_scroll, "Outputs")
+        self._outputs_tree.setContextMenuPolicy(
+            Qt.ContextMenuPolicy.CustomContextMenu
+        )
+        self._outputs_tree.customContextMenuRequested.connect(
+            self._on_outputs_context_menu
+        )
+        self._outputs_tree.itemDoubleClicked.connect(self._on_output_double_click)
+        self._detail_tabs.addTab(self._outputs_tree, "Outputs")
         self._detail_tabs.setTabEnabled(1, False)
 
         lay.addWidget(self._detail_tabs, 1)
@@ -310,74 +318,35 @@ class WorkerRunDialog(QDialog):
     def _fetch_outputs(self, job_id: str):
         try:
             files, sub_dirs = self._client.list_outputs(job_id)
-            # Build the listing on the main thread via a signal-safe
-            # approach: use QTimer.singleShot(0, ...) which is safe to
-            # call from any thread in PyQt.
             from functools import partial
             QTimer.singleShot(0, partial(self._populate_outputs, files, sub_dirs))
         except Exception as exc:
             QTimer.singleShot(
                 0,
-                lambda: self._outputs_scroll.setWidget(
-                    self._make_label(f"Failed to load outputs: {exc}")
-                ),
+                lambda: self._append_log(f"[ERROR] Failed to load outputs: {exc}"),
             )
 
     def _populate_outputs(self, files, sub_dirs):
-        content = QWidget()
-        lay = QVBoxLayout(content)
-        lay.setContentsMargins(4, 4, 4, 4)
-        lay.setSpacing(6)
-
-        if not files and not sub_dirs:
-            lay.addWidget(self._make_label("No output files found."))
-            lay.addStretch()
-            self._outputs_scroll.setWidget(content)
-            return
+        self._outputs_tree.clear()
 
         for entry in sub_dirs:
-            row = QHBoxLayout()
-            row.setContentsMargins(0, 0, 0, 0)
-            row.setSpacing(8)
-            icon = QLabel("\U0001f4c1")
-            row.addWidget(icon)
-            path_lbl = QLabel(entry.path.rstrip("/").rsplit("/", 1)[-1] + "/")
-            path_lbl.setObjectName("npWorkerName")
-            row.addWidget(path_lbl, 1)
-            lay.addLayout(row)
+            name = entry.path.rstrip("/").rsplit("/", 1)[-1] + "/"
+            item = QTreeWidgetItem([name, ""])
+            item.setData(0, Qt.ItemDataRole.UserRole, {
+                "path": entry.path, "isDir": True,
+            })
+            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+            self._outputs_tree.addTopLevelItem(item)
 
         for entry in files:
-            row = QHBoxLayout()
-            row.setContentsMargins(0, 0, 0, 0)
-            row.setSpacing(8)
-
-            icon = QLabel("\U0001f4c4")
-            row.addWidget(icon)
-
-            info = QVBoxLayout()
-            info.setSpacing(0)
             fname = entry.path.rsplit("/", 1)[-1]
-            name_lbl = QLabel(fname)
-            name_lbl.setObjectName("npWorkerName")
-            info.addWidget(name_lbl)
-            if entry.size:
-                size_lbl = QLabel(entry.size)
-                size_lbl.setObjectName("npWorkerDesc")
-                info.addWidget(size_lbl)
-            row.addLayout(info, 1)
+            item = QTreeWidgetItem([fname, entry.size or ""])
+            item.setData(0, Qt.ItemDataRole.UserRole, {
+                "path": entry.path, "isDir": False, "name": fname,
+            })
+            self._outputs_tree.addTopLevelItem(item)
 
-            dl_btn = QPushButton("Download")
-            dl_btn.setObjectName("npBrowseBtn")
-            dl_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            dl_btn.clicked.connect(
-                lambda _=False, p=entry.path, n=fname: self._download_output(p, n)
-            )
-            row.addWidget(dl_btn)
-
-            lay.addLayout(row)
-
-        lay.addStretch()
-        self._outputs_scroll.setWidget(content)
+        self._outputs_tree.resizeColumnToContents(0)
 
     def _download_output(self, output_path: str, filename: str):
         """Prompt the user for a save location, then download the file."""
@@ -408,12 +377,78 @@ class WorkerRunDialog(QDialog):
 
         threading.Thread(target=_do_download, daemon=True).start()
 
-    @staticmethod
-    def _make_label(text: str) -> QLabel:
-        lbl = QLabel(text)
-        lbl.setObjectName("npEmptyLabel")
-        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        return lbl
+    def _on_output_double_click(self, item: QTreeWidgetItem, _column: int):
+        data = item.data(0, Qt.ItemDataRole.UserRole)
+        if data and not data.get("isDir"):
+            self._download_output(data["path"], data["name"])
+
+    def _on_outputs_context_menu(self, pos):
+        selected = [
+            item for item in self._outputs_tree.selectedItems()
+            if (item.data(0, Qt.ItemDataRole.UserRole) or {}).get("isDir") is False
+        ]
+        all_files = [
+            self._outputs_tree.topLevelItem(i)
+            for i in range(self._outputs_tree.topLevelItemCount())
+            if (self._outputs_tree.topLevelItem(i).data(0, Qt.ItemDataRole.UserRole) or {}).get("isDir") is False
+        ]
+
+        menu = QMenu(self)
+
+        dl_action = None
+        if len(selected) == 1:
+            dl_action = menu.addAction("Download")
+        elif len(selected) > 1:
+            dl_action = menu.addAction(f"Download {len(selected)} files")
+
+        dl_all_action = None
+        if all_files and set(id(i) for i in all_files) != set(id(i) for i in selected):
+            dl_all_action = menu.addAction(f"Download all ({len(all_files)} files)")
+
+        if not menu.actions():
+            return
+
+        action = menu.exec(self._outputs_tree.viewport().mapToGlobal(pos))
+        if action == dl_action and selected:
+            self._download_items(selected)
+        elif action == dl_all_action and all_files:
+            self._download_items(all_files)
+
+    def _download_items(self, items: list[QTreeWidgetItem]):
+        if len(items) == 1:
+            data = items[0].data(0, Qt.ItemDataRole.UserRole)
+            self._download_output(data["path"], data["name"])
+            return
+
+        dest_dir = QFileDialog.getExistingDirectory(self, "Save Output Files To")
+        if not dest_dir:
+            return
+        if not self._client or not self._session or not self._session.job_id:
+            return
+
+        job_id = self._session.job_id
+        entries = []
+        for item in items:
+            data = item.data(0, Qt.ItemDataRole.UserRole)
+            rel_path = data["path"].replace("/outputs", "", 1)
+            local_path = os.path.join(dest_dir, data["name"])
+            entries.append((rel_path, local_path, data["name"]))
+
+        def _do_batch():
+            from ..cloud.client import download_file
+            for rel_path, local_path, name in entries:
+                try:
+                    signed_url = self._client.get_output_download_url(job_id, rel_path)
+                    download_file(signed_url, local_path)
+                    QTimer.singleShot(0, lambda n=name, lp=local_path: self._append_log(
+                        f"Downloaded: {n} -> {lp}"
+                    ))
+                except Exception as exc:
+                    QTimer.singleShot(0, lambda n=name, e=exc: self._append_log(
+                        f"Download failed ({n}): {e}"
+                    ))
+
+        threading.Thread(target=_do_batch, daemon=True).start()
 
     # ── submit ────────────────────────────────────────────────────
 
