@@ -273,8 +273,8 @@ class WorkersPage(QWidget):
                     "inputParams": j.inputParams,
                     "logPreview": j.logPreview,
                     "hasOutputFiles": j.hasOutputFiles,
-                    "jobStartedAt": j.jobStartedAt,
-                    "jobEndedAt": j.jobEndedAt,
+                    "jobSubmittedAt": j.jobSubmittedAt,
+                    "jobCancelledAt": j.jobCancelledAt,
                     "createdAt": j.createdAt,
                 }
                 for j in jobs

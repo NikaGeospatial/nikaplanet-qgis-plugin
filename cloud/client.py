@@ -79,7 +79,7 @@ class WorkerJobsClient:
         input_schema_with_args: list[dict],
         machine_type: str = "CPUx3",
     ) -> PrepareResponse:
-        """POST /api/workers/job/prepare"""
+        """POST /api/workers/jobs/prepare"""
         body = {
             "tenantId": tenant_id,
             "workerId": worker_id,
@@ -87,7 +87,7 @@ class WorkerJobsClient:
             "machineType": machine_type,
             "inputSchemaWithArgs": input_schema_with_args,
         }
-        data = self._request("POST", "/api/workers/job/prepare", body=body)
+        data = self._request("POST", "/api/workers/jobs/prepare", body=body)
         return PrepareResponse(
             jobId=data["jobId"],
             workerId=data["workerId"],
@@ -99,22 +99,22 @@ class WorkerJobsClient:
     # ── 3. Submit Job ─────────────────────────────────────────────
 
     def submit_job(self, job_id: str) -> SubmitResponse:
-        """POST /api/workers/job/submit"""
-        data = self._request("POST", "/api/workers/job/submit", body={"jobId": job_id})
+        """POST /api/workers/jobs/submit"""
+        data = self._request("POST", "/api/workers/jobs/submit", body={"jobId": job_id})
         return SubmitResponse(jobId=data["jobId"], status=data["status"])
 
     # ── 6. Cancel Job ─────────────────────────────────────────────
 
     def cancel_job(self, job_id: str) -> SubmitResponse:
-        """POST /api/workers/job/cancel"""
-        data = self._request("POST", "/api/workers/job/cancel", body={"jobId": job_id})
+        """POST /api/workers/jobs/cancel"""
+        data = self._request("POST", "/api/workers/jobs/cancel", body={"jobId": job_id})
         return SubmitResponse(jobId=data["jobId"], status=data["status"])
 
     # ── 8. Get Job ────────────────────────────────────────────────
 
     def get_job(self, job_id: str) -> WorkerJob:
-        """GET /api/workers/job/{jobId}"""
-        data = self._request("GET", f"/api/workers/job/{job_id}")
+        """GET /api/workers/jobs/{jobId}"""
+        data = self._request("GET", f"/api/workers/jobs/{job_id}")
         return _parse_worker_job(data)
 
     # ── List Jobs (added 2026-04-16) ──────────────────────────────
@@ -139,11 +139,11 @@ class WorkerJobsClient:
     # ── 9. Get Log URL ────────────────────────────────────────────
 
     def get_job_log_url(self, job_id: str, disposition: str = "inline") -> str:
-        """GET /api/workers/job/{jobId}/log — returns signed URL (15 min)."""
+        """GET /api/workers/jobs/{jobId}/log — returns signed URL (15 min)."""
         params: dict[str, str] = {}
         if disposition != "inline":
             params["disposition"] = disposition
-        data = self._request("GET", f"/api/workers/job/{job_id}/log", params=params)
+        data = self._request("GET", f"/api/workers/jobs/{job_id}/log", params=params)
         return data["signedUrl"]
 
     # ── 10. List Outputs (added 2026-04-16) ───────────────────────
@@ -151,14 +151,14 @@ class WorkerJobsClient:
     def list_outputs(
         self, job_id: str, path: str = "/",
     ) -> tuple[list[OutputEntry], list[OutputEntry]]:
-        """GET /api/workers/job/{jobId}/outputs
+        """GET /api/workers/jobs/{jobId}/outputs
 
         Returns (files, subDirs).
         """
         params: dict[str, str] = {}
         if path != "/":
             params["path"] = path
-        data = self._request("GET", f"/api/workers/job/{job_id}/outputs", params=params)
+        data = self._request("GET", f"/api/workers/jobs/{job_id}/outputs", params=params)
         files = [
             OutputEntry(
                 path=f["path"], isDir=f.get("isDir", False),
@@ -175,14 +175,14 @@ class WorkerJobsClient:
     # ── 11. Download Output File (added 2026-04-16) ───────────────
 
     def get_output_download_url(self, job_id: str, path: str) -> str:
-        """GET /api/workers/job/{jobId}/outputs/download-file
+        """GET /api/workers/jobs/{jobId}/outputs/download-file
 
         Returns a signed URL (15 min) for a single output file.
         ``path`` is relative to outputs — strip ``/outputs`` prefix from
         the list endpoint's ``path`` values.
         """
         data = self._request(
-            "GET", f"/api/workers/job/{job_id}/outputs/download-file",
+            "GET", f"/api/workers/jobs/{job_id}/outputs/download-file",
             params={"path": path},
         )
         return data["signedUrl"]
@@ -193,7 +193,7 @@ class WorkerJobsClient:
     def download_output_folder(
         self, job_id: str, path: str, local_path: str,
     ) -> None:
-        """GET /api/workers/job/{jobId}/outputs/download-folder
+        """GET /api/workers/jobs/{jobId}/outputs/download-folder
 
         Streams a zip archive of the folder at *path* to *local_path*.
         """
@@ -202,7 +202,7 @@ class WorkerJobsClient:
         params: dict[str, str] = {}
         if path != "/":
             params["path"] = path
-        url = f"{self._base_url()}/api/workers/job/{job_id}/outputs/download-folder"
+        url = f"{self._base_url()}/api/workers/jobs/{job_id}/outputs/download-folder"
         if params:
             qs = "&".join(
                 f"{k}={urllib.request.quote(str(v))}" for k, v in params.items()
@@ -250,11 +250,10 @@ def _parse_worker_job(data: dict) -> WorkerJob:
         inputParams=data.get("inputParams"),
         exitCode=data.get("exitCode"),
         exitFailureReason=data.get("exitFailureReason"),
-        logUrl=data.get("logUrl"),
         logPreview=data.get("logPreview"),
         hasOutputFiles=data.get("hasOutputFiles", False),
-        jobStartedAt=data.get("jobStartedAt"),
-        jobEndedAt=data.get("jobEndedAt"),
+        jobSubmittedAt=data.get("jobSubmittedAt"),
+        jobCancelledAt=data.get("jobCancelledAt"),
         createdAt=data["createdAt"],
     )
 
