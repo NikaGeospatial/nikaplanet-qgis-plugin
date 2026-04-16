@@ -188,6 +188,52 @@ class WorkerJobsClient:
         return data["signedUrl"]
 
 
+    # ── 12. Download Output Folder ──────────────────────────────────
+
+    def download_output_folder(
+        self, job_id: str, path: str, local_path: str,
+    ) -> None:
+        """GET /api/workers/job/{jobId}/outputs/download-folder
+
+        Streams a zip archive of the folder at *path* to *local_path*.
+        """
+        import os
+
+        params: dict[str, str] = {}
+        if path != "/":
+            params["path"] = path
+        url = f"{self._base_url()}/api/workers/job/{job_id}/outputs/download-folder"
+        if params:
+            qs = "&".join(
+                f"{k}={urllib.request.quote(str(v))}" for k, v in params.items()
+            )
+            url = f"{url}?{qs}"
+
+        headers = self._auth_header()
+        req = urllib.request.Request(url, method="GET", headers=headers)
+        QgsMessageLog.logMessage(f"GET {url}", LOG_TAG, Qgis.Info)
+
+        os.makedirs(os.path.dirname(local_path) or ".", exist_ok=True)
+        try:
+            with urllib.request.urlopen(req, timeout=300) as resp:
+                with open(local_path, "wb") as f:
+                    while True:
+                        chunk = resp.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+        except HTTPError as exc:
+            raw = exc.read().decode("utf-8", errors="replace")
+            QgsMessageLog.logMessage(
+                f"GET {url} → {exc.code}: {raw}", LOG_TAG, Qgis.Warning,
+            )
+            try:
+                detail = json.loads(raw)
+            except (json.JSONDecodeError, ValueError):
+                detail = {"error": raw}
+            raise ApiError(exc.code, detail) from None
+
+
 def _parse_worker_job(data: dict) -> WorkerJob:
     return WorkerJob(
         jobId=data["jobId"],

@@ -432,37 +432,49 @@ class WorkerRunDialog(QDialog):
         threading.Thread(target=_do_download, daemon=True).start()
 
     def _on_outputs_context_menu(self, pos):
-        selected = [
-            item for item in self._outputs_tree.selectedItems()
+        all_selected = self._outputs_tree.selectedItems()
+        file_items = [
+            item for item in all_selected
             if (item.data(0, Qt.ItemDataRole.UserRole) or {}).get("isDir") is False
         ]
-        all_files = [
-            self._outputs_tree.topLevelItem(i)
-            for i in range(self._outputs_tree.topLevelItemCount())
-            if (self._outputs_tree.topLevelItem(i).data(0, Qt.ItemDataRole.UserRole) or {}).get("isDir") is False
+        folder_items = [
+            item for item in all_selected
+            if (item.data(0, Qt.ItemDataRole.UserRole) or {}).get("isDir") is True
         ]
 
         menu = QMenu(self)
         menu.setObjectName("npOutputsMenu")
 
+        # Single file download
         dl_action = None
-        if len(selected) == 1:
+        if len(file_items) == 1:
             dl_action = menu.addAction("Download")
-        elif len(selected) > 1:
-            dl_action = menu.addAction(f"Download {len(selected)} files")
+        elif len(file_items) > 1:
+            dl_action = menu.addAction(f"Download {len(file_items)} files")
 
-        dl_all_action = None
-        if all_files and set(id(i) for i in all_files) != set(id(i) for i in selected):
-            dl_all_action = menu.addAction(f"Download all ({len(all_files)} files)")
+        # Folder download (as zip)
+        dl_folder_action = None
+        if len(folder_items) == 1:
+            name = folder_items[0].text(0)
+            dl_folder_action = menu.addAction(f"Download folder \"{name}\" as zip")
+        elif len(folder_items) > 1:
+            dl_folder_action = menu.addAction(
+                f"Download {len(folder_items)} folders as zip"
+            )
+
+        # Download all outputs as zip
+        dl_all_action = menu.addAction("Download all outputs as zip")
 
         if not menu.actions():
             return
 
         action = menu.exec(self._outputs_tree.viewport().mapToGlobal(pos))
-        if action == dl_action and selected:
-            self._download_items(selected)
-        elif action == dl_all_action and all_files:
-            self._download_items(all_files)
+        if action == dl_action and file_items:
+            self._download_items(file_items)
+        elif action == dl_folder_action and folder_items:
+            self._download_folders(folder_items)
+        elif action == dl_all_action:
+            self._download_folder_path("/")
 
     def _download_items(self, items: list[QTreeWidgetItem]):
         if len(items) == 1:
@@ -499,6 +511,40 @@ class WorkerRunDialog(QDialog):
                     ))
 
         threading.Thread(target=_do_batch, daemon=True).start()
+
+    def _download_folders(self, items: list[QTreeWidgetItem]):
+        for item in items:
+            data = item.data(0, Qt.ItemDataRole.UserRole)
+            self._download_folder_path(data["path"])
+
+    def _download_folder_path(self, path: str):
+        if path == "/":
+            default_name = "outputs.zip"
+        else:
+            default_name = path.rstrip("/").rsplit("/", 1)[-1] + ".zip"
+
+        local_path, _ = QFileDialog.getSaveFileName(
+            self, "Save Folder as Zip", default_name, "Zip files (*.zip)",
+        )
+        if not local_path:
+            return
+        if not self._client or not self._session or not self._session.job_id:
+            return
+
+        job_id = self._session.job_id
+
+        def _do_download():
+            try:
+                self._client.download_output_folder(job_id, path, local_path)
+                QTimer.singleShot(0, lambda: self._append_log(
+                    f"Downloaded folder: {default_name} -> {local_path}"
+                ))
+            except Exception as exc:
+                QTimer.singleShot(0, lambda: self._append_log(
+                    f"Folder download failed: {exc}"
+                ))
+
+        threading.Thread(target=_do_download, daemon=True).start()
 
     # ── submit ────────────────────────────────────────────────────
 
