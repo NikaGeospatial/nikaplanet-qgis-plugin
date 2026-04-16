@@ -455,7 +455,7 @@ class AuthManager(QObject):
         try:
             with urlopen(req, timeout=15) as resp:
                 data = json.loads(resp.read())
-                user = data.get("user")
+                user = data.get("data")
                 if isinstance(user, dict) and user.get("username"):
                     return user
         except Exception as exc:
