@@ -3,6 +3,40 @@
 # Dark palette follows the "Cosmic Cartographer" design system (DESIGN.md).
 # Light palette mirrors the capabilities-mobile mockup.
 
+import os as _os
+import tempfile as _tempfile
+
+# ── branch arrow icons (generated once per theme) ─────────────────────
+
+_arrow_cache: dict[str, tuple[str, str]] = {}
+
+
+def _get_arrow_paths(c: dict) -> tuple[str, str]:
+    """Return (collapsed_svg_path, expanded_svg_path) for the given palette."""
+    key = c["text_dim"] + c["primary"]
+    if key in _arrow_cache:
+        return _arrow_cache[key]
+
+    d = _tempfile.mkdtemp(prefix="np_arrows_")
+
+    right = _os.path.join(d, "right.svg")
+    with open(right, "w") as f:
+        f.write(
+            '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">'
+            f'<polygon points="2,0 9,5 2,10" fill="{c["text_dim"]}"/></svg>'
+        )
+
+    down = _os.path.join(d, "down.svg")
+    with open(down, "w") as f:
+        f.write(
+            '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">'
+            f'<polygon points="0,2 10,2 5,9" fill="{c["primary"]}"/></svg>'
+        )
+
+    _arrow_cache[key] = (right, down)
+    return right, down
+
+
 # ── colour tokens ──────────────────────────────────────────────────────
 
 DARK = {
@@ -52,6 +86,7 @@ LIGHT = {
 
 def _stylesheet(c: dict) -> str:
     """Build the full QSS string for a given colour dict *c*."""
+    arrow_right, arrow_down = _get_arrow_paths(c)
     return f"""
 /* ── root container ────────────────────────────────────────────────── */
 #npRoot {{
@@ -428,6 +463,91 @@ def _stylesheet(c: dict) -> str:
     color: {c["primary"]};
     font-size: 9pt;
     font-weight: 700;
+}}
+
+/* ── outputs file browser ──────────────────────────────────────────── */
+#npOutputsTree {{
+    background-color: {c["surface_low"]};
+    color: {c["text"]};
+    border: 1px solid {c["card_border"]};
+    border-radius: 8px;
+    font-size: 9pt;
+    padding: 4px;
+    outline: none;
+}}
+#npOutputsTree::item {{
+    padding: 4px 2px;
+    border-radius: 4px;
+}}
+#npOutputsTree::item:selected {{
+    background-color: {c["surface_high"]};
+    color: {c["primary"]};
+}}
+#npOutputsTree::item:hover {{
+    background-color: {c["surface_high"]};
+}}
+#npOutputsTree::branch {{
+    background: transparent;
+}}
+#npOutputsTree::branch:has-children:!has-siblings:closed,
+#npOutputsTree::branch:closed:has-children:has-siblings {{
+    image: url({arrow_right});
+    padding: 2px;
+}}
+#npOutputsTree::branch:open:has-children:!has-siblings,
+#npOutputsTree::branch:open:has-children:has-siblings {{
+    image: url({arrow_down});
+    padding: 2px;
+}}
+#npOutputsTree QHeaderView::section {{
+    background-color: {c["surface_low"]};
+    color: {c["text_dim"]};
+    border: none;
+    border-bottom: 1px solid {c["divider"]};
+    font-size: 8pt;
+    font-weight: 700;
+    letter-spacing: 1px;
+    padding: 4px 6px;
+}}
+#npOutputsMenu {{
+    background-color: {c["surface_low"]};
+    color: {c["text"]};
+    border: 1px solid {c["card_border"]};
+    border-radius: 6px;
+    padding: 4px 0px;
+    font-size: 9pt;
+}}
+#npOutputsMenu::item {{
+    padding: 6px 20px;
+}}
+#npOutputsMenu::item:selected {{
+    background-color: {c["surface_high"]};
+    color: {c["primary"]};
+}}
+
+/* ── detail tabs ──────────────────────────────────────────────────── */
+#npDetailTabs::pane {{
+    border: none;
+    background: transparent;
+}}
+#npDetailTabs > QTabBar::tab {{
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: {c["text_dim"]};
+    font-size: 9pt;
+    font-weight: 600;
+    padding: 6px 14px;
+}}
+#npDetailTabs > QTabBar::tab:selected {{
+    color: {c["primary"]};
+    border-bottom-color: {c["primary"]};
+}}
+#npDetailTabs > QTabBar::tab:hover {{
+    color: {c["primary"]};
+}}
+#npDetailTabs > QTabBar::tab:disabled {{
+    color: {c["surface_high"]};
 }}
 
 /* ── scroll area ───────────────────────────────────────────────────── */

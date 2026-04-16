@@ -218,7 +218,7 @@ class WorkerRunDialog(QDialog):
         self._outputs_tree = QTreeWidget()
         self._outputs_tree.setObjectName("npOutputsTree")
         self._outputs_tree.setHeaderLabels(["Name", "Size"])
-        self._outputs_tree.setRootIsDecorated(False)
+        self._outputs_tree.setRootIsDecorated(True)
         self._outputs_tree.setSelectionMode(
             QAbstractItemView.SelectionMode.ExtendedSelection
         )
@@ -228,7 +228,9 @@ class WorkerRunDialog(QDialog):
         self._outputs_tree.customContextMenuRequested.connect(
             self._on_outputs_context_menu
         )
+        self._outputs_tree.itemExpanded.connect(self._on_folder_expanded)
         self._outputs_tree.itemDoubleClicked.connect(self._on_output_double_click)
+
         self._detail_tabs.addTab(self._outputs_tree, "Outputs")
         self._detail_tabs.setTabEnabled(1, False)
 
@@ -306,47 +308,101 @@ class WorkerRunDialog(QDialog):
             self._load_outputs()
 
     def _load_outputs(self):
-        """Fetch the output file listing in a background thread."""
+        """Fetch the root output listing in a background thread."""
         if not self._client or not self._session or not self._session.job_id:
             return
         self._outputs_loaded = True
+        self._fetch_outputs_for_path("/")
+
+    def _fetch_outputs_for_path(
+        self, path: str, parent_item: QTreeWidgetItem | None = None,
+    ):
+        if not self._client or not self._session or not self._session.job_id:
+            return
         job_id = self._session.job_id
         threading.Thread(
-            target=self._fetch_outputs, args=(job_id,), daemon=True,
+            target=self._fetch_outputs,
+            args=(job_id, path, parent_item),
+            daemon=True,
         ).start()
 
-    def _fetch_outputs(self, job_id: str):
+    def _fetch_outputs(
+        self, job_id: str, path: str, parent_item: QTreeWidgetItem | None,
+    ):
         try:
-            files, sub_dirs = self._client.list_outputs(job_id)
+            files, sub_dirs = self._client.list_outputs(job_id, path)
             from functools import partial
-            QTimer.singleShot(0, partial(self._populate_outputs, files, sub_dirs))
+            QTimer.singleShot(
+                0, partial(self._populate_outputs, files, sub_dirs, parent_item),
+            )
         except Exception as exc:
             QTimer.singleShot(
                 0,
                 lambda: self._append_log(f"[ERROR] Failed to load outputs: {exc}"),
             )
 
-    def _populate_outputs(self, files, sub_dirs):
-        self._outputs_tree.clear()
+    @staticmethod
+    def _strip_outputs_prefix(path: str) -> str:
+        """Remove the /outputs prefix the API includes in returned paths."""
+        if path.startswith("/outputs"):
+            return path[len("/outputs"):] or "/"
+        return path
+
+    def _make_folder_item(self, path: str) -> QTreeWidgetItem:
+        name = path.rstrip("/").rsplit("/", 1)[-1]
+        item = QTreeWidgetItem([name, ""])
+        item.setData(0, Qt.ItemDataRole.UserRole, {
+            "path": path, "isDir": True, "loaded": False,
+        })
+        item.setChildIndicatorPolicy(
+            QTreeWidgetItem.ChildIndicatorPolicy.ShowIndicator
+        )
+        # Dummy child so expand triggers a fetch.
+        item.addChild(QTreeWidgetItem(["\u2026", ""]))
+        return item
+
+    @staticmethod
+    def _make_file_item(path: str, fname: str, size: str) -> QTreeWidgetItem:
+        item = QTreeWidgetItem([fname, size])
+        item.setData(0, Qt.ItemDataRole.UserRole, {
+            "path": path, "isDir": False, "name": fname,
+        })
+        item.setChildIndicatorPolicy(
+            QTreeWidgetItem.ChildIndicatorPolicy.DontShowIndicatorWhenChildless
+        )
+        return item
+
+    def _populate_outputs(self, files, sub_dirs, parent_item=None):
+        if parent_item is None:
+            self._outputs_tree.clear()
+        else:
+            parent_item.takeChildren()
+
+        target = parent_item or self._outputs_tree.invisibleRootItem()
 
         for entry in sub_dirs:
-            name = entry.path.rstrip("/").rsplit("/", 1)[-1] + "/"
-            item = QTreeWidgetItem([name, ""])
-            item.setData(0, Qt.ItemDataRole.UserRole, {
-                "path": entry.path, "isDir": True,
-            })
-            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
-            self._outputs_tree.addTopLevelItem(item)
+            clean = self._strip_outputs_prefix(entry.path)
+            target.addChild(self._make_folder_item(clean))
 
         for entry in files:
-            fname = entry.path.rsplit("/", 1)[-1]
-            item = QTreeWidgetItem([fname, entry.size or ""])
-            item.setData(0, Qt.ItemDataRole.UserRole, {
-                "path": entry.path, "isDir": False, "name": fname,
-            })
-            self._outputs_tree.addTopLevelItem(item)
+            clean = self._strip_outputs_prefix(entry.path)
+            fname = clean.rsplit("/", 1)[-1]
+            target.addChild(self._make_file_item(clean, fname, entry.size or ""))
 
         self._outputs_tree.resizeColumnToContents(0)
+
+    def _on_folder_expanded(self, item: QTreeWidgetItem):
+        data = item.data(0, Qt.ItemDataRole.UserRole)
+        if not data or not data.get("isDir") or data.get("loaded"):
+            return
+        data["loaded"] = True
+        item.setData(0, Qt.ItemDataRole.UserRole, data)
+        self._fetch_outputs_for_path(data["path"], parent_item=item)
+
+    def _on_output_double_click(self, item: QTreeWidgetItem, _column: int):
+        data = item.data(0, Qt.ItemDataRole.UserRole)
+        if data and not data.get("isDir"):
+            self._download_output(data["path"], data["name"])
 
     def _download_output(self, output_path: str, filename: str):
         """Prompt the user for a save location, then download the file."""
@@ -359,13 +415,11 @@ class WorkerRunDialog(QDialog):
             return
 
         job_id = self._session.job_id
-        # Strip /outputs prefix to get the path for the download endpoint.
-        rel_path = output_path.replace("/outputs", "", 1)
 
         def _do_download():
             try:
                 from ..cloud.client import download_file
-                signed_url = self._client.get_output_download_url(job_id, rel_path)
+                signed_url = self._client.get_output_download_url(job_id, output_path)
                 download_file(signed_url, local_path)
                 QTimer.singleShot(0, lambda: self._append_log(
                     f"Downloaded: {filename} -> {local_path}"
@@ -376,11 +430,6 @@ class WorkerRunDialog(QDialog):
                 ))
 
         threading.Thread(target=_do_download, daemon=True).start()
-
-    def _on_output_double_click(self, item: QTreeWidgetItem, _column: int):
-        data = item.data(0, Qt.ItemDataRole.UserRole)
-        if data and not data.get("isDir"):
-            self._download_output(data["path"], data["name"])
 
     def _on_outputs_context_menu(self, pos):
         selected = [
@@ -394,6 +443,7 @@ class WorkerRunDialog(QDialog):
         ]
 
         menu = QMenu(self)
+        menu.setObjectName("npOutputsMenu")
 
         dl_action = None
         if len(selected) == 1:
@@ -430,7 +480,7 @@ class WorkerRunDialog(QDialog):
         entries = []
         for item in items:
             data = item.data(0, Qt.ItemDataRole.UserRole)
-            rel_path = data["path"].replace("/outputs", "", 1)
+            rel_path = data["path"]
             local_path = os.path.join(dest_dir, data["name"])
             entries.append((rel_path, local_path, data["name"]))
 
