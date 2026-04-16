@@ -216,7 +216,8 @@ class JobSession(QObject):
             for line in log_text.splitlines():
                 self._emit_log(line)
         except Exception:
-            pass
+            if not self.logs:
+                self._emit_log("No logs found.")
 
     # ── cancel ───────────────────────────────────────────────────
 
