@@ -102,7 +102,12 @@ class WorkerRunDialog(QDialog):
 
         self._machine_combo = QComboBox()
         self._machine_combo.setObjectName("npRunCombo")
-        for mt in ("CPUx3", "CPUx7", "CPUx20"):
+        cpu_types = worker.get("cpu_machine_types") or []
+        gpu_types = worker.get("gpu_machine_types") or []
+        all_types = cpu_types + gpu_types
+        if not all_types:
+            all_types = ["CPUx3"]
+        for mt in all_types:
             self._machine_combo.addItem(mt)
         form.addRow("Compute", self._machine_combo)
 
