@@ -16,6 +16,7 @@ from qgis.PyQt.QtWidgets import (
     QMenu,
     QPlainTextEdit,
     QPushButton,
+    QScrollArea,
     QStackedWidget,
     QTabWidget,
     QTreeWidget,
@@ -77,23 +78,34 @@ class WorkerRunDialog(QDialog):
     def _build_config_page(self):
         page = QWidget()
         lay = QVBoxLayout(page)
-        lay.setContentsMargins(20, 20, 20, 20)
-        lay.setSpacing(12)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+
+        # Scrollable area for all config content
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+
+        inner = QWidget()
+        inner_lay = QVBoxLayout(inner)
+        inner_lay.setContentsMargins(20, 20, 20, 20)
+        inner_lay.setSpacing(12)
 
         title = QLabel(self._worker.get("name", "Unknown Worker"))
         title.setObjectName("npRunDialogTitle")
-        lay.addWidget(title)
+        inner_lay.addWidget(title)
 
         ver = QLabel(f"Version: {self._worker.get('version', '?')}")
         ver.setObjectName("npRunDialogVersion")
-        lay.addWidget(ver)
+        inner_lay.addWidget(ver)
 
         desc = self._worker.get("description", "")
         if desc:
             d = QLabel(desc)
             d.setObjectName("npRunDialogDesc")
             d.setWordWrap(True)
-            lay.addWidget(d)
+            inner_lay.addWidget(d)
 
         form = QFormLayout()
         form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
@@ -102,8 +114,9 @@ class WorkerRunDialog(QDialog):
 
         self._machine_combo = QComboBox()
         self._machine_combo.setObjectName("npRunCombo")
-        cpu_types = worker.get("cpu_machine_types") or []
-        gpu_types = worker.get("gpu_machine_types") or []
+        plan = self._worker.get("planFeatures") or {}
+        cpu_types = plan.get("cpu_machine_types") or []
+        gpu_types = plan.get("gpu_machine_types") or []
         all_types = cpu_types + gpu_types
         if not all_types:
             all_types = ["CPUx3"]
@@ -119,15 +132,23 @@ class WorkerRunDialog(QDialog):
             widget = self._build_input_widget(inp, form)
             self._input_widgets.append({"def": inp, "widget": widget})
 
-        lay.addLayout(form)
-        lay.addStretch()
+        inner_lay.addLayout(form)
+        inner_lay.addStretch()
 
+        scroll.setWidget(inner)
+        lay.addWidget(scroll, 1)
+
+        # Submit button stays pinned at the bottom, outside the scroll
         submit = QPushButton("Submit Run")
         submit.setObjectName("npSubmitRunBtn")
         submit.setCursor(Qt.CursorShape.PointingHandCursor)
         submit.setFixedHeight(40)
         submit.clicked.connect(self._on_submit)
-        lay.addWidget(submit)
+        btn_wrap = QWidget()
+        btn_lay = QVBoxLayout(btn_wrap)
+        btn_lay.setContentsMargins(20, 8, 20, 20)
+        btn_lay.addWidget(submit)
+        lay.addWidget(btn_wrap)
 
         return page
 
@@ -269,6 +290,7 @@ class WorkerRunDialog(QDialog):
 
         session.log_added.connect(self._append_log)
         session.status_changed.connect(self._on_status_change)
+        session.session_id_changed.connect(self._sid_lbl.setText)
 
         self._dur_timer.start(1000)
         self._tick_duration()
