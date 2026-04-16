@@ -25,6 +25,7 @@ class JobSession(QObject):
 
     log_added = pyqtSignal(str)
     status_changed = pyqtSignal(str)
+    session_id_changed = pyqtSignal(str)
     _submit_phase_done = pyqtSignal(bool)
 
     def __init__(
@@ -96,6 +97,13 @@ class JobSession(QObject):
         session.logs.clear()
         if job_data.get("logPreview"):
             session.logs.append(job_data["logPreview"])
+
+        # Fetch the full log for terminal jobs that have a client.
+        if session.status in TERMINAL_STATUSES and client and session.job_id:
+            threading.Thread(
+                target=session._try_fetch_full_log, daemon=True,
+            ).start()
+
         return session
 
     # ── real flow (background thread) ────────────────────────────
@@ -114,6 +122,7 @@ class JobSession(QObject):
             )
             self.job_id = resp.jobId
             self.session_id = resp.jobId[:13]
+            self.session_id_changed.emit(self.session_id)
             self._emit_log(f"[INFO]  Job created: {resp.jobId}")
             self._emit_log(f"[INFO]  Upload deadline: {resp.uploadDeadline}")
 
@@ -207,7 +216,8 @@ class JobSession(QObject):
             for line in log_text.splitlines():
                 self._emit_log(line)
         except Exception:
-            pass
+            if not self.logs:
+                self._emit_log("No logs found.")
 
     # ── cancel ───────────────────────────────────────────────────
 

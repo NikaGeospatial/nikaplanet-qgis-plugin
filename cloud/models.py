@@ -40,7 +40,7 @@ class DirectoryTreeEntry:
 class InputSchemaEntry:
     name: str
     type: str  # "file" | "folder" | "string" | "number" | "boolean" | "enum" | "datetime"
-    readonly: Optional[bool] = None
+    output: Optional[bool] = None
     required: Optional[bool] = None
     description: Optional[str] = None
     default: Optional[str] = None
@@ -91,16 +91,15 @@ class WorkerJob:
     inputParams: Optional[list[dict]] = None
     exitCode: Optional[int] = None
     exitFailureReason: Optional[str] = None
-    logUrl: Optional[str] = None
     logPreview: Optional[str] = None
-    hasOutputFiles: bool = False  # Replaces outputFiles/outputExpiry (2026-04-16)
-    jobStartedAt: Optional[str] = None
-    jobEndedAt: Optional[str] = None
+    hasOutputFiles: bool = False
+    jobSubmittedAt: Optional[str] = None
+    jobCancelledAt: Optional[str] = None
 
 
 @dataclass
 class OutputEntry:
-    """A file or folder returned by GET /api/workers/job/{jobId}/outputs."""
+    """A file or folder returned by GET /api/workers/jobs/{jobId}/outputs."""
     path: str
     isDir: bool
     size: Optional[str] = None

@@ -40,6 +40,13 @@ class _WorkerCard(QWidget):
         header = QHBoxLayout()
         header.setSpacing(8)
 
+        self._chevron = QPushButton()
+        self._chevron.setObjectName("npChevron")
+        self._chevron.setFixedSize(28, 28)
+        self._chevron.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._chevron.clicked.connect(self._toggle)
+        header.addWidget(self._chevron, 0, Qt.AlignmentFlag.AlignTop)
+
         info = QVBoxLayout()
         info.setSpacing(2)
         name_lbl = QLabel(name)
@@ -49,13 +56,6 @@ class _WorkerCard(QWidget):
         desc_lbl.setObjectName("npWorkerDesc")
         info.addWidget(desc_lbl)
         header.addLayout(info, 1)
-
-        self._chevron = QPushButton()
-        self._chevron.setObjectName("npChevron")
-        self._chevron.setFixedSize(28, 28)
-        self._chevron.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._chevron.clicked.connect(self._toggle)
-        header.addWidget(self._chevron, 0, Qt.AlignmentFlag.AlignTop)
 
         outer.addLayout(header)
 
@@ -125,9 +125,9 @@ class _SubmittedJobCard(QWidget):
         name_lbl = QLabel(f"{session.worker_name}  v{session.version}")
         name_lbl.setObjectName("npWorkerName")
         info.addWidget(name_lbl)
-        sid_lbl = QLabel(session.session_id)
-        sid_lbl.setObjectName("npWorkerDesc")
-        info.addWidget(sid_lbl)
+        self._sid_lbl = QLabel(session.session_id)
+        self._sid_lbl.setObjectName("npWorkerDesc")
+        info.addWidget(self._sid_lbl)
         lay.addLayout(info, 1)
 
         self._status_lbl = QLabel(session.status)
@@ -135,9 +135,13 @@ class _SubmittedJobCard(QWidget):
         lay.addWidget(self._status_lbl, 0, Qt.AlignmentFlag.AlignVCenter)
 
         session.status_changed.connect(self._on_status_changed)
+        session.session_id_changed.connect(self._on_session_id_changed)
 
     def _on_status_changed(self, status: str):
         self._status_lbl.setText(status)
+
+    def _on_session_id_changed(self, session_id: str):
+        self._sid_lbl.setText(session_id)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -273,8 +277,8 @@ class WorkersPage(QWidget):
                     "inputParams": j.inputParams,
                     "logPreview": j.logPreview,
                     "hasOutputFiles": j.hasOutputFiles,
-                    "jobStartedAt": j.jobStartedAt,
-                    "jobEndedAt": j.jobEndedAt,
+                    "jobSubmittedAt": j.jobSubmittedAt,
+                    "jobCancelledAt": j.jobCancelledAt,
                     "createdAt": j.createdAt,
                 }
                 for j in jobs

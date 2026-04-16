@@ -16,6 +16,7 @@ from qgis.PyQt.QtWidgets import (
     QMenu,
     QPlainTextEdit,
     QPushButton,
+    QScrollArea,
     QStackedWidget,
     QTabWidget,
     QTreeWidget,
@@ -77,23 +78,34 @@ class WorkerRunDialog(QDialog):
     def _build_config_page(self):
         page = QWidget()
         lay = QVBoxLayout(page)
-        lay.setContentsMargins(20, 20, 20, 20)
-        lay.setSpacing(12)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+
+        # Scrollable area for all config content
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+
+        inner = QWidget()
+        inner_lay = QVBoxLayout(inner)
+        inner_lay.setContentsMargins(20, 20, 20, 20)
+        inner_lay.setSpacing(12)
 
         title = QLabel(self._worker.get("name", "Unknown Worker"))
         title.setObjectName("npRunDialogTitle")
-        lay.addWidget(title)
+        inner_lay.addWidget(title)
 
         ver = QLabel(f"Version: {self._worker.get('version', '?')}")
         ver.setObjectName("npRunDialogVersion")
-        lay.addWidget(ver)
+        inner_lay.addWidget(ver)
 
         desc = self._worker.get("description", "")
         if desc:
             d = QLabel(desc)
             d.setObjectName("npRunDialogDesc")
             d.setWordWrap(True)
-            lay.addWidget(d)
+            inner_lay.addWidget(d)
 
         form = QFormLayout()
         form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
@@ -102,7 +114,13 @@ class WorkerRunDialog(QDialog):
 
         self._machine_combo = QComboBox()
         self._machine_combo.setObjectName("npRunCombo")
-        for mt in ("CPUx3", "CPUx7", "CPUx20"):
+        plan = self._worker.get("planFeatures") or {}
+        cpu_types = plan.get("cpu_machine_types") or []
+        gpu_types = plan.get("gpu_machine_types") or []
+        all_types = cpu_types + gpu_types
+        if not all_types:
+            all_types = ["CPUx3"]
+        for mt in all_types:
             self._machine_combo.addItem(mt)
         form.addRow("Compute", self._machine_combo)
 
@@ -114,15 +132,23 @@ class WorkerRunDialog(QDialog):
             widget = self._build_input_widget(inp, form)
             self._input_widgets.append({"def": inp, "widget": widget})
 
-        lay.addLayout(form)
-        lay.addStretch()
+        inner_lay.addLayout(form)
+        inner_lay.addStretch()
 
+        scroll.setWidget(inner)
+        lay.addWidget(scroll, 1)
+
+        # Submit button stays pinned at the bottom, outside the scroll
         submit = QPushButton("Submit Run")
         submit.setObjectName("npSubmitRunBtn")
         submit.setCursor(Qt.CursorShape.PointingHandCursor)
         submit.setFixedHeight(40)
         submit.clicked.connect(self._on_submit)
-        lay.addWidget(submit)
+        btn_wrap = QWidget()
+        btn_lay = QVBoxLayout(btn_wrap)
+        btn_lay.setContentsMargins(20, 8, 20, 20)
+        btn_lay.addWidget(submit)
+        lay.addWidget(btn_wrap)
 
         return page
 
@@ -264,6 +290,7 @@ class WorkerRunDialog(QDialog):
 
         session.log_added.connect(self._append_log)
         session.status_changed.connect(self._on_status_change)
+        session.session_id_changed.connect(self._sid_lbl.setText)
 
         self._dur_timer.start(1000)
         self._tick_duration()
@@ -598,23 +625,23 @@ class WorkerRunDialog(QDialog):
             inp_def = item["def"]
             widget = item["widget"]
             inp_type = inp_def.get("type", "string")
-            readonly = inp_def.get("readonly", False)
+            is_output = inp_def.get("output", False)
             value = self._widget_value(widget)
 
             entry: dict = {
                 "name": inp_def.get("name", ""),
                 "type": inp_type,
             }
-            for key in ("readonly", "required", "description", "enum_values", "default", "filetypes"):
+            for key in ("output", "required", "description", "enum_values", "default", "filetypes"):
                 if key in inp_def:
                     entry[key] = inp_def[key]
 
-            if inp_type == "folder" and not readonly:
+            if inp_type == "folder" and is_output:
                 pass
             elif value:
                 entry["args"] = value
 
-            if readonly and value and inp_type in ("file", "folder"):
+            if not is_output and value and inp_type in ("file", "folder"):
                 tree = self._build_directory_tree(value, inp_type)
                 if tree:
                     entry["directoryTree"] = tree
@@ -639,7 +666,7 @@ class WorkerRunDialog(QDialog):
         inp_type = inp.get("type", "string")
         inp_desc = inp.get("description", inp.get("name", ""))
         required = inp.get("required", False)
-        readonly = inp.get("readonly", False)
+        is_output = inp.get("output", False)
 
         label_text = inp_desc or inp.get("name", "")
         if required:
@@ -647,9 +674,9 @@ class WorkerRunDialog(QDialog):
 
         if inp_type == "file":
             filetypes = inp.get("filetypes")
-            return self._build_file_row(label_text, readonly, form, filetypes=filetypes)
+            return self._build_file_row(label_text, is_output, form, filetypes=filetypes)
         if inp_type == "folder":
-            return self._build_folder_row(label_text, readonly, form)
+            return self._build_folder_row(label_text, is_output, form)
         if inp_type == "boolean":
             cb = QCheckBox()
             cb.setObjectName("npRunCheckbox")
@@ -678,26 +705,26 @@ class WorkerRunDialog(QDialog):
         form.addRow(label_text, le)
         return le
 
-    def _build_file_row(self, label_text, readonly, form, filetypes=None):
+    def _build_file_row(self, label_text, is_output, form, filetypes=None):
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
         le = QLineEdit()
         le.setObjectName("npRunInput")
         le.setPlaceholderText(
-            "Select input file\u2026" if readonly else "Select output file location\u2026"
+            "Select output file location\u2026" if is_output else "Select input file\u2026"
         )
         row.addWidget(le, 1)
         browse = QPushButton("Browse")
         browse.setObjectName("npBrowseBtn")
         browse.setCursor(Qt.CursorShape.PointingHandCursor)
         file_filter = self._build_file_filter(filetypes)
-        if readonly:
+        if is_output:
             browse.clicked.connect(
-                lambda _=False, w=le, ff=file_filter: self._pick_open_file(w, ff)
+                lambda _=False, w=le, ff=file_filter: self._pick_save_file(w, ff)
             )
         else:
             browse.clicked.connect(
-                lambda _=False, w=le, ff=file_filter: self._pick_save_file(w, ff)
+                lambda _=False, w=le, ff=file_filter: self._pick_open_file(w, ff)
             )
         row.addWidget(browse)
         container = QWidget()
@@ -705,18 +732,18 @@ class WorkerRunDialog(QDialog):
         form.addRow(label_text, container)
         return le
 
-    def _build_folder_row(self, label_text, readonly, form):
+    def _build_folder_row(self, label_text, is_output, form):
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
         le = QLineEdit()
         le.setObjectName("npRunInput")
-        if readonly:
-            le.setPlaceholderText("Select input folder\u2026")
-        else:
+        if is_output:
             le.setPlaceholderText("Output folder (server sets path)")
             le.setReadOnly(True)
+        else:
+            le.setPlaceholderText("Select input folder\u2026")
         row.addWidget(le, 1)
-        if readonly:
+        if not is_output:
             browse = QPushButton("Browse")
             browse.setObjectName("npBrowseBtn")
             browse.setCursor(Qt.CursorShape.PointingHandCursor)

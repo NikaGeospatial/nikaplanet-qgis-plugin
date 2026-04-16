@@ -17,12 +17,13 @@ from qgis.core import (
 from ..cloud.auth import AuthManager
 from ..util.settings import get_control_server_url
 
-# Map YAML input type + readonly to a QGIS parameter builder.
+# Map (input type, output) to a QGIS parameter builder.
+# output=False → input (file picker), output=True → output (save dialog).
 _PARAM_BUILDERS = {
-    ("file", True): lambda inp: QgsProcessingParameterFile(
+    ("file", False): lambda inp: QgsProcessingParameterFile(
         inp["name"], inp.get("description", inp["name"]),
     ),
-    ("file", False): lambda inp: QgsProcessingParameterFileDestination(
+    ("file", True): lambda inp: QgsProcessingParameterFileDestination(
         inp["name"], inp.get("description", inp["name"]),
     ),
 }
@@ -65,11 +66,11 @@ class RemoteAlgorithm(QgsProcessingAlgorithm):
         # This builds the parameter dialog that QGIS shows when the user
         # opens this algorithm in the Processing Toolbox.
         for inp in self._task_def.get("inputs") or self._task_def.get("command", {}).get("inputs", []):
-            # Look up a QGIS parameter builder based on (type, readonly).
-            # e.g. ("file", True)  -> QgsProcessingParameterFile (file picker)
-            #      ("file", False) -> QgsProcessingParameterFileDestination (save dialog)
+            # Look up a QGIS parameter builder based on (type, output).
+            # e.g. ("file", False) -> QgsProcessingParameterFile (input picker)
+            #      ("file", True)  -> QgsProcessingParameterFileDestination (save dialog)
             # Anything else falls back to a plain string input.
-            key = (inp.get("type", "string"), inp.get("readonly", False))
+            key = (inp.get("type", "string"), inp.get("output", False))
             builder = _PARAM_BUILDERS.get(key, _DEFAULT_PARAM)
             param = builder(inp)
 
