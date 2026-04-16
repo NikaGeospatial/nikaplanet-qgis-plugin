@@ -431,6 +431,30 @@ class WorkerRunDialog(QDialog):
 
         threading.Thread(target=_do_download, daemon=True).start()
 
+    _SHP_EXTENSIONS = frozenset({".shp", ".shx", ".dbf", ".prj", ".cpg"})
+
+    def _find_shapefile_siblings(self, item: QTreeWidgetItem) -> list[QTreeWidgetItem]:
+        """Return all sibling items that share the same stem and have a shapefile extension."""
+        data = item.data(0, Qt.ItemDataRole.UserRole)
+        if not data or data.get("isDir"):
+            return []
+        name = data.get("name", "")
+        stem, ext = os.path.splitext(name)
+        if ext.lower() not in self._SHP_EXTENSIONS:
+            return []
+
+        parent = item.parent() or self._outputs_tree.invisibleRootItem()
+        siblings = []
+        for i in range(parent.childCount()):
+            child = parent.child(i)
+            cd = child.data(0, Qt.ItemDataRole.UserRole)
+            if not cd or cd.get("isDir"):
+                continue
+            child_stem, child_ext = os.path.splitext(cd.get("name", ""))
+            if child_stem == stem and child_ext.lower() in self._SHP_EXTENSIONS:
+                siblings.append(child)
+        return siblings
+
     def _on_outputs_context_menu(self, pos):
         all_selected = self._outputs_tree.selectedItems()
         file_items = [
@@ -452,6 +476,24 @@ class WorkerRunDialog(QDialog):
         elif len(file_items) > 1:
             dl_action = menu.addAction(f"Download {len(file_items)} files")
 
+        # Shapefile: download all associated files
+        dl_shp_action = None
+        shp_siblings: list[QTreeWidgetItem] = []
+        if len(file_items) == 1:
+            shp_siblings = self._find_shapefile_siblings(file_items[0])
+            if len(shp_siblings) > 1:
+                stem = os.path.splitext(
+                    file_items[0].data(0, Qt.ItemDataRole.UserRole)["name"]
+                )[0]
+                exts = ", ".join(
+                    sorted(os.path.splitext(
+                        s.data(0, Qt.ItemDataRole.UserRole)["name"]
+                    )[1] for s in shp_siblings)
+                )
+                dl_shp_action = menu.addAction(
+                    f"Download shapefile \"{stem}\" ({exts})"
+                )
+
         # Folder download (as zip)
         dl_folder_action = None
         if len(folder_items) == 1:
@@ -471,6 +513,8 @@ class WorkerRunDialog(QDialog):
         action = menu.exec(self._outputs_tree.viewport().mapToGlobal(pos))
         if action == dl_action and file_items:
             self._download_items(file_items)
+        elif action == dl_shp_action and shp_siblings:
+            self._download_items(shp_siblings)
         elif action == dl_folder_action and folder_items:
             self._download_folders(folder_items)
         elif action == dl_all_action:
