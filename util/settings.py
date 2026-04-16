@@ -4,8 +4,8 @@ from pathlib import Path
 
 
 def _load_dotenv() -> dict[str, str]:
-    """Read the .env file from the plugin repo root (parent of qgis/)."""
-    env_path = Path(__file__).resolve().parents[2] / ".env"
+    """Read the .env file from the plugin repo root."""
+    env_path = Path(__file__).resolve().parents[1] / ".env"
     vals: dict[str, str] = {}
     if env_path.is_file():
         for line in env_path.read_text().splitlines():
