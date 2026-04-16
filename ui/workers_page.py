@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import threading
+
 from qgis.PyQt.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -14,8 +16,11 @@ from qgis.PyQt.QtWidgets import (
 )
 from qgis.PyQt.QtCore import Qt, pyqtSignal
 
-from .job_session import JobSession
+from qgis.core import QgsMessageLog, Qgis
+
+from .job_session import JobSession, TERMINAL_STATUSES
 from .worker_run_dialog import WorkerRunDialog
+from ..util.messages import PLUGIN_LOG_TAG
 
 
 class _WorkerCard(QWidget):
@@ -32,7 +37,6 @@ class _WorkerCard(QWidget):
         outer.setContentsMargins(14, 12, 14, 12)
         outer.setSpacing(0)
 
-        # header row
         header = QHBoxLayout()
         header.setSpacing(8)
 
@@ -55,7 +59,6 @@ class _WorkerCard(QWidget):
 
         outer.addLayout(header)
 
-        # versions container
         self._versions_widget = QWidget()
         v_lay = QVBoxLayout(self._versions_widget)
         v_lay.setContentsMargins(0, 8, 0, 0)
@@ -148,10 +151,15 @@ class WorkersPage(QWidget):
     refresh_clicked = pyqtSignal()
     back_clicked = pyqtSignal()
 
+    # Internal: background thread finished fetching history.
+    _history_loaded = pyqtSignal(list)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._sessions: list[JobSession] = []
-        self._client = None  # WorkerJobsClient, set after login
+        self._client = None
+
+        self._history_loaded.connect(self._on_history_loaded)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(16, 8, 16, 16)
@@ -165,7 +173,7 @@ class WorkersPage(QWidget):
         back_btn.clicked.connect(self.back_clicked.emit)
         root.addWidget(back_btn, 0, Qt.AlignmentFlag.AlignLeft)
 
-        # tab bar + action buttons in one row
+        # tab bar
         tab_row = QHBoxLayout()
         tab_row.setSpacing(0)
 
@@ -186,12 +194,14 @@ class WorkersPage(QWidget):
 
         tab_row.addStretch()
 
+        # Refresh button — refreshes workers catalog or sessions depending
+        # on which tab is active.
         refresh = QPushButton("\u21BB")
         refresh.setObjectName("npRefreshBtn")
-        refresh.setToolTip("Refresh workers")
+        refresh.setToolTip("Refresh")
         refresh.setCursor(Qt.CursorShape.PointingHandCursor)
         refresh.setFixedSize(30, 30)
-        refresh.clicked.connect(self.refresh_clicked.emit)
+        refresh.clicked.connect(self._on_refresh)
         tab_row.addWidget(refresh)
 
         root.addLayout(tab_row)
@@ -225,11 +235,72 @@ class WorkersPage(QWidget):
         self._workers_tab_btn.setChecked(index == 0)
         self._submitted_tab_btn.setChecked(index == 1)
 
+    def _on_refresh(self):
+        if self._content_stack.currentIndex() == 0:
+            self.refresh_clicked.emit()
+        else:
+            self.load_job_history()
+
     # ── public API ────────────────────────────────────────────────
 
     def set_client(self, client) -> None:
-        """Inject the WorkerJobsClient after login."""
         self._client = client
+
+    def load_job_history(self):
+        """Fetch all jobs from GET /api/workers/jobs in a background thread."""
+        if not self._client:
+            return
+        threading.Thread(target=self._fetch_history, daemon=True).start()
+
+    def _fetch_history(self):
+        try:
+            jobs = self._client.list_jobs()
+            # Send raw dicts to main thread (WorkerJob dataclasses aren't
+            # needed — from_history works with dicts).
+            self._history_loaded.emit([
+                {
+                    "jobId": j.jobId,
+                    "workerId": j.workerId,
+                    "workerName": j.workerName,
+                    "workerVersionId": j.workerVersionId,
+                    "versionTag": j.versionTag,
+                    "createdBy": j.createdBy,
+                    "createdByUserName": j.createdByUserName,
+                    "tenantId": j.tenantId,
+                    "tenantName": j.tenantName,
+                    "status": j.status,
+                    "machineType": j.machineType,
+                    "inputParams": j.inputParams,
+                    "logPreview": j.logPreview,
+                    "hasOutputFiles": j.hasOutputFiles,
+                    "jobStartedAt": j.jobStartedAt,
+                    "jobEndedAt": j.jobEndedAt,
+                    "createdAt": j.createdAt,
+                }
+                for j in jobs
+            ])
+        except Exception as exc:
+            QgsMessageLog.logMessage(
+                f"Failed to fetch job history: {exc}",
+                PLUGIN_LOG_TAG, Qgis.Warning,
+            )
+
+    def _on_history_loaded(self, job_dicts: list):
+        """Main thread: merge fetched history into sessions list."""
+        # Keep any active (non-terminal, locally-tracked) sessions.
+        active = [s for s in self._sessions if s.status not in TERMINAL_STATUSES]
+        active_ids = {s.job_id for s in active if s.job_id}
+
+        # Build sessions from history, skipping any already tracked locally.
+        historical = []
+        for jd in job_dicts:
+            if jd["jobId"] in active_ids:
+                continue
+            s = JobSession.from_history(jd, client=self._client, parent=self)
+            historical.append(s)
+
+        self._sessions = active + historical
+        self._rebuild_submitted_list()
 
     def set_workers_data(self, tenants: list[dict]) -> None:
         """Populate the Catalog tab."""
@@ -274,7 +345,6 @@ class WorkersPage(QWidget):
     # ── run dialog ────────────────────────────────────────────────
 
     def _get_current_stylesheet(self) -> str:
-        """Walk up the parent chain to find the active NikaPlanet stylesheet."""
         w = self.parentWidget()
         while w:
             ss = w.styleSheet()
@@ -313,7 +383,6 @@ class WorkersPage(QWidget):
     # ── session tracking ──────────────────────────────────────────
 
     def clear_sessions(self):
-        """Stop all running sessions and clear the list. Called on logout."""
         for session in self._sessions:
             if session.status == "RUNNING":
                 session.cancel()
@@ -322,7 +391,7 @@ class WorkersPage(QWidget):
 
     def _on_job_submitted(self, session: JobSession):
         session.setParent(self)
-        self._sessions.append(session)
+        self._sessions.insert(0, session)
         self._rebuild_submitted_list()
 
     def _rebuild_submitted_list(self):
@@ -337,7 +406,7 @@ class WorkersPage(QWidget):
             empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
             lay.addWidget(empty)
         else:
-            for session in reversed(self._sessions):
+            for session in self._sessions:
                 card = _SubmittedJobCard(session, content)
                 card.clicked.connect(
                     lambda s=session: self._open_session_dialog(s)
@@ -351,7 +420,6 @@ class WorkersPage(QWidget):
 # ── helpers ────────────────────────────────────────────────────────
 
 def _group_workers(workers: list[dict]) -> dict[str, list[dict]]:
-    """Group a flat worker list by name, preserving insertion order."""
     groups: dict[str, list[dict]] = {}
     for w in workers:
         groups.setdefault(w.get("name", "unknown"), []).append(w)
@@ -359,7 +427,6 @@ def _group_workers(workers: list[dict]) -> dict[str, list[dict]]:
 
 
 def _version_sort_key(v: str):
-    """Sort version strings numerically (best-effort)."""
     parts = []
     for seg in v.lstrip("v").split("."):
         try:

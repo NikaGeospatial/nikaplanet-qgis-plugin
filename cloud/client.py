@@ -1,19 +1,19 @@
-"""HTTP client for the Worker Jobs API (spec 2026-04-15).
+"""HTTP client for the Worker Jobs API (spec 2026-04-16).
 
-Implements: prepare, submit, cancel, get job, get log URL.
+Implements: prepare, submit, cancel, get job, list jobs,
+            get log URL, list outputs, download output file.
 """
 
 from __future__ import annotations
 
 import json
 import urllib.request
-from typing import Optional
 from urllib.error import HTTPError
 
 from qgis.core import QgsMessageLog, Qgis
 
 from .auth import AuthManager
-from .models import PrepareResponse, SubmitResponse, WorkerJob, OutputFile
+from .models import PrepareResponse, SubmitResponse, WorkerJob, OutputEntry
 from ..util.messages import PLUGIN_LOG_TAG as LOG_TAG
 from ..util.settings import get_control_server_url
 
@@ -41,7 +41,7 @@ class WorkerJobsClient:
         path: str,
         body: dict | None = None,
         params: dict[str, str] | None = None,
-    ) -> dict:
+    ) -> dict | list:
         url = f"{self._base_url()}{path}"
         if params:
             qs = "&".join(f"{k}={urllib.request.quote(str(v))}" for k, v in params.items())
@@ -79,12 +79,7 @@ class WorkerJobsClient:
         input_schema_with_args: list[dict],
         machine_type: str = "CPUx3",
     ) -> PrepareResponse:
-        """POST /api/workers/job/prepare
-
-        Uses ``workerId`` (worker UUID) — ``workerName`` is no longer accepted
-        as of 2026-04-13.  Concurrent jobs for the same user+worker+version
-        are allowed; this endpoint no longer returns 409.
-        """
+        """POST /api/workers/job/prepare"""
         body = {
             "tenantId": tenant_id,
             "workerId": worker_id,
@@ -104,11 +99,7 @@ class WorkerJobsClient:
     # ── 3. Submit Job ─────────────────────────────────────────────
 
     def submit_job(self, job_id: str) -> SubmitResponse:
-        """POST /api/workers/job/submit
-
-        Returns ``{ jobId, status }``.  Client must branch on ``status``:
-        SUBMITTED → open SSE, RUNNING → open SSE, SUCCESS → fetch results.
-        """
+        """POST /api/workers/job/submit"""
         data = self._request("POST", "/api/workers/job/submit", body={"jobId": job_id})
         return SubmitResponse(jobId=data["jobId"], status=data["status"])
 
@@ -122,74 +113,108 @@ class WorkerJobsClient:
     # ── 8. Get Job ────────────────────────────────────────────────
 
     def get_job(self, job_id: str) -> WorkerJob:
-        """GET /api/workers/job/{jobId}
-
-        Field names use ``jobStartedAt`` / ``jobEndedAt`` (corrected in
-        2026-04-14 from ``startedAt`` / ``endedAt``).
-        ``logQueryFilter`` is no longer returned (removed 2026-04-14).
-        """
+        """GET /api/workers/job/{jobId}"""
         data = self._request("GET", f"/api/workers/job/{job_id}")
-        output_files = None
-        if data.get("outputFiles"):
-            output_files = [
-                OutputFile(name=f["name"], url=f["url"])
-                for f in data["outputFiles"]
-            ]
-        return WorkerJob(
-            jobId=data["jobId"],
-            workerId=data["workerId"],
-            workerName=data["workerName"],
-            workerVersionId=data["workerVersionId"],
-            versionTag=data["versionTag"],
-            createdBy=data["createdBy"],
-            createdByUserName=data["createdByUserName"],
-            tenantId=data["tenantId"],
-            tenantName=data.get("tenantName"),
-            status=data["status"],
-            machineType=data["machineType"],
-            inputParams=data.get("inputParams"),
-            exitCode=data.get("exitCode"),
-            exitFailureReason=data.get("exitFailureReason"),
-            logUrl=data.get("logUrl"),
-            logPreview=data.get("logPreview"),
-            outputFiles=output_files,
-            outputExpiry=data.get("outputExpiry"),
-            jobStartedAt=data.get("jobStartedAt"),
-            jobEndedAt=data.get("jobEndedAt"),
-            createdAt=data["createdAt"],
-        )
+        return _parse_worker_job(data)
 
-    # ── 9. Get Log URL (added 2026-04-15) ─────────────────────────
+    # ── List Jobs (added 2026-04-16) ──────────────────────────────
 
-    def get_job_log_url(
+    def list_jobs(
         self,
-        job_id: str,
-        disposition: str = "inline",
-    ) -> str:
-        """GET /api/workers/job/{jobId}/log
+        worker_id: str | None = None,
+        status: str | None = None,
+    ) -> list[WorkerJob]:
+        """GET /api/workers/jobs
 
-        Returns a fresh signed URL for accessing archived job logs.
-        ``logUrl`` on WorkerJob is the raw GCS path and is not directly
-        accessible — always call this endpoint instead.
-
-        The signed URL is valid for 15 minutes.
+        Returns all jobs created by the authenticated user.
         """
+        params: dict[str, str] = {}
+        if worker_id:
+            params["workerId"] = worker_id
+        if status:
+            params["status"] = status
+        data = self._request("GET", "/api/workers/jobs", params=params)
+        return [_parse_worker_job(j) for j in data.get("jobs", [])]
+
+    # ── 9. Get Log URL ────────────────────────────────────────────
+
+    def get_job_log_url(self, job_id: str, disposition: str = "inline") -> str:
+        """GET /api/workers/job/{jobId}/log — returns signed URL (15 min)."""
         params: dict[str, str] = {}
         if disposition != "inline":
             params["disposition"] = disposition
+        data = self._request("GET", f"/api/workers/job/{job_id}/log", params=params)
+        return data["signedUrl"]
+
+    # ── 10. List Outputs (added 2026-04-16) ───────────────────────
+
+    def list_outputs(
+        self, job_id: str, path: str = "/",
+    ) -> tuple[list[OutputEntry], list[OutputEntry]]:
+        """GET /api/workers/job/{jobId}/outputs
+
+        Returns (files, subDirs).
+        """
+        params: dict[str, str] = {}
+        if path != "/":
+            params["path"] = path
+        data = self._request("GET", f"/api/workers/job/{job_id}/outputs", params=params)
+        files = [
+            OutputEntry(
+                path=f["path"], isDir=f.get("isDir", False),
+                size=f.get("size"), lastModified=f.get("lastModified"),
+            )
+            for f in data.get("files", [])
+        ]
+        sub_dirs = [
+            OutputEntry(path=d["path"], isDir=True)
+            for d in data.get("subDirs", [])
+        ]
+        return files, sub_dirs
+
+    # ── 11. Download Output File (added 2026-04-16) ───────────────
+
+    def get_output_download_url(self, job_id: str, path: str) -> str:
+        """GET /api/workers/job/{jobId}/outputs/download-file
+
+        Returns a signed URL (15 min) for a single output file.
+        ``path`` is relative to outputs — strip ``/outputs`` prefix from
+        the list endpoint's ``path`` values.
+        """
         data = self._request(
-            "GET", f"/api/workers/job/{job_id}/log", params=params,
+            "GET", f"/api/workers/job/{job_id}/outputs/download-file",
+            params={"path": path},
         )
         return data["signedUrl"]
 
 
-def upload_file_to_gcs(local_path: str, upload_url: str) -> None:
-    """PUT a local file to a GCS signed resumable URL.
+def _parse_worker_job(data: dict) -> WorkerJob:
+    return WorkerJob(
+        jobId=data["jobId"],
+        workerId=data["workerId"],
+        workerName=data["workerName"],
+        workerVersionId=data["workerVersionId"],
+        versionTag=data["versionTag"],
+        createdBy=data["createdBy"],
+        createdByUserName=data["createdByUserName"],
+        tenantId=data["tenantId"],
+        tenantName=data.get("tenantName"),
+        status=data["status"],
+        machineType=data["machineType"],
+        inputParams=data.get("inputParams"),
+        exitCode=data.get("exitCode"),
+        exitFailureReason=data.get("exitFailureReason"),
+        logUrl=data.get("logUrl"),
+        logPreview=data.get("logPreview"),
+        hasOutputFiles=data.get("hasOutputFiles", False),
+        jobStartedAt=data.get("jobStartedAt"),
+        jobEndedAt=data.get("jobEndedAt"),
+        createdAt=data["createdAt"],
+    )
 
-    For files that fit in memory this does a single PUT.  Very large files
-    would benefit from chunked resumable uploads, but for an initial
-    implementation this is sufficient.
-    """
+
+def upload_file_to_gcs(local_path: str, upload_url: str) -> None:
+    """PUT a local file to a GCS signed resumable URL."""
     import os
 
     size = os.path.getsize(local_path)
@@ -197,7 +222,6 @@ def upload_file_to_gcs(local_path: str, upload_url: str) -> None:
         req = urllib.request.Request(upload_url, data=f, method="PUT")
         req.add_header("Content-Type", "application/octet-stream")
         req.add_header("Content-Length", str(size))
-        # Use a generous timeout scaled to file size (min 60 s, ~1 MB/s).
         timeout = max(60, size // (1024 * 1024) * 2)
         urllib.request.urlopen(req, timeout=timeout)
 
@@ -218,11 +242,7 @@ def download_file(url: str, local_path: str) -> None:
 
 
 def resolve_local_path(args: str, entry_path: str) -> str:
-    """Map a directoryTree ``path`` back to an absolute local file.
-
-    Works for both file and folder inputs because ``_build_directory_tree``
-    in the UI creates paths relative to ``os.path.dirname(args)``.
-    """
+    """Map a directoryTree ``path`` back to an absolute local file."""
     import os
     return os.path.join(os.path.dirname(args.rstrip(os.sep)), entry_path)
 

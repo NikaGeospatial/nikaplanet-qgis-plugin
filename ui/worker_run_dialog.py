@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import threading
 
 from qgis.PyQt.QtWidgets import (
     QCheckBox,
@@ -13,7 +14,9 @@ from qgis.PyQt.QtWidgets import (
     QLineEdit,
     QPlainTextEdit,
     QPushButton,
+    QScrollArea,
     QStackedWidget,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -40,6 +43,7 @@ class WorkerRunDialog(QDialog):
         self._client = client
         self._session = None
         self._input_widgets: list[dict] = []
+        self._outputs_loaded = False
 
         name = worker.get("name", "Unknown Worker")
         version = worker.get("version", "?")
@@ -48,8 +52,6 @@ class WorkerRunDialog(QDialog):
         self.setMinimumHeight(450)
         self.setObjectName("npRunDialog")
 
-        # Apply stylesheet before building child widgets so Qt
-        # styles them as they are created.
         if not stylesheet:
             from .styles import DARK_STYLESHEET
             stylesheet = DARK_STYLESHEET
@@ -95,14 +97,12 @@ class WorkerRunDialog(QDialog):
         form.setSpacing(6)
         form.setContentsMargins(0, 4, 0, 4)
 
-        # machine type
         self._machine_combo = QComboBox()
         self._machine_combo.setObjectName("npRunCombo")
         for mt in ("CPUx3", "CPUx7", "CPUx20"):
             self._machine_combo.addItem(mt)
         form.addRow("Compute", self._machine_combo)
 
-        # input fields
         inputs_def = (
             self._worker.get("inputs")
             or self._worker.get("command", {}).get("inputs", [])
@@ -131,7 +131,7 @@ class WorkerRunDialog(QDialog):
         lay.setContentsMargins(20, 20, 20, 20)
         lay.setSpacing(12)
 
-        # header: worker identification | session id
+        # header
         header = QHBoxLayout()
 
         left = QVBoxLayout()
@@ -201,16 +201,30 @@ class WorkerRunDialog(QDialog):
 
         lay.addLayout(cards)
 
-        # "Live Log" label
-        log_lbl = QLabel("Live Log")
-        log_lbl.setObjectName("npLogTabLabel")
-        lay.addWidget(log_lbl)
+        # Tabbed area: Log + Outputs
+        self._detail_tabs = QTabWidget()
+        self._detail_tabs.setObjectName("npDetailTabs")
 
-        # log text area
+        # -- Log tab --
         self._log_text = QPlainTextEdit()
         self._log_text.setObjectName("npLogArea")
         self._log_text.setReadOnly(True)
-        lay.addWidget(self._log_text, 1)
+        self._detail_tabs.addTab(self._log_text, "Log")
+
+        # -- Outputs tab --
+        self._outputs_scroll = QScrollArea()
+        self._outputs_scroll.setWidgetResizable(True)
+        self._outputs_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        empty_outputs = QLabel("Outputs will appear here when the job completes.")
+        empty_outputs.setObjectName("npEmptyLabel")
+        empty_outputs.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._outputs_scroll.setWidget(empty_outputs)
+        self._detail_tabs.addTab(self._outputs_scroll, "Outputs")
+        self._detail_tabs.setTabEnabled(1, False)
+
+        lay.addWidget(self._detail_tabs, 1)
 
         # cancel button
         self._cancel_btn = QPushButton("CANCEL SESSION")
@@ -249,6 +263,8 @@ class WorkerRunDialog(QDialog):
         if is_terminal:
             self._dur_timer.stop()
 
+        self._maybe_enable_outputs()
+
     def _append_log(self, line: str):
         self._log_text.appendPlainText(line)
 
@@ -257,6 +273,7 @@ class WorkerRunDialog(QDialog):
         if status in TERMINAL_STATUSES:
             self._cancel_btn.setEnabled(False)
             self._dur_timer.stop()
+        self._maybe_enable_outputs()
 
     def _tick_duration(self):
         if self._session:
@@ -265,6 +282,138 @@ class WorkerRunDialog(QDialog):
     def _on_cancel(self):
         if self._session:
             self._session.cancel()
+
+    # ── outputs tab ──────────────────────────────────────────────
+
+    def _maybe_enable_outputs(self):
+        """Enable and populate the Outputs tab when applicable."""
+        if not self._session:
+            return
+        if (
+            self._session.status == "SUCCESS"
+            and self._session.has_output_files
+            and not self._outputs_loaded
+        ):
+            self._detail_tabs.setTabEnabled(1, True)
+            self._load_outputs()
+
+    def _load_outputs(self):
+        """Fetch the output file listing in a background thread."""
+        if not self._client or not self._session or not self._session.job_id:
+            return
+        self._outputs_loaded = True
+        job_id = self._session.job_id
+        threading.Thread(
+            target=self._fetch_outputs, args=(job_id,), daemon=True,
+        ).start()
+
+    def _fetch_outputs(self, job_id: str):
+        try:
+            files, sub_dirs = self._client.list_outputs(job_id)
+            # Build the listing on the main thread via a signal-safe
+            # approach: use QTimer.singleShot(0, ...) which is safe to
+            # call from any thread in PyQt.
+            from functools import partial
+            QTimer.singleShot(0, partial(self._populate_outputs, files, sub_dirs))
+        except Exception as exc:
+            QTimer.singleShot(
+                0,
+                lambda: self._outputs_scroll.setWidget(
+                    self._make_label(f"Failed to load outputs: {exc}")
+                ),
+            )
+
+    def _populate_outputs(self, files, sub_dirs):
+        content = QWidget()
+        lay = QVBoxLayout(content)
+        lay.setContentsMargins(4, 4, 4, 4)
+        lay.setSpacing(6)
+
+        if not files and not sub_dirs:
+            lay.addWidget(self._make_label("No output files found."))
+            lay.addStretch()
+            self._outputs_scroll.setWidget(content)
+            return
+
+        for entry in sub_dirs:
+            row = QHBoxLayout()
+            row.setContentsMargins(0, 0, 0, 0)
+            row.setSpacing(8)
+            icon = QLabel("\U0001f4c1")
+            row.addWidget(icon)
+            path_lbl = QLabel(entry.path.rstrip("/").rsplit("/", 1)[-1] + "/")
+            path_lbl.setObjectName("npWorkerName")
+            row.addWidget(path_lbl, 1)
+            lay.addLayout(row)
+
+        for entry in files:
+            row = QHBoxLayout()
+            row.setContentsMargins(0, 0, 0, 0)
+            row.setSpacing(8)
+
+            icon = QLabel("\U0001f4c4")
+            row.addWidget(icon)
+
+            info = QVBoxLayout()
+            info.setSpacing(0)
+            fname = entry.path.rsplit("/", 1)[-1]
+            name_lbl = QLabel(fname)
+            name_lbl.setObjectName("npWorkerName")
+            info.addWidget(name_lbl)
+            if entry.size:
+                size_lbl = QLabel(entry.size)
+                size_lbl.setObjectName("npWorkerDesc")
+                info.addWidget(size_lbl)
+            row.addLayout(info, 1)
+
+            dl_btn = QPushButton("Download")
+            dl_btn.setObjectName("npBrowseBtn")
+            dl_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            dl_btn.clicked.connect(
+                lambda _=False, p=entry.path, n=fname: self._download_output(p, n)
+            )
+            row.addWidget(dl_btn)
+
+            lay.addLayout(row)
+
+        lay.addStretch()
+        self._outputs_scroll.setWidget(content)
+
+    def _download_output(self, output_path: str, filename: str):
+        """Prompt the user for a save location, then download the file."""
+        local_path, _ = QFileDialog.getSaveFileName(
+            self, "Save Output File", filename,
+        )
+        if not local_path:
+            return
+        if not self._client or not self._session or not self._session.job_id:
+            return
+
+        job_id = self._session.job_id
+        # Strip /outputs prefix to get the path for the download endpoint.
+        rel_path = output_path.replace("/outputs", "", 1)
+
+        def _do_download():
+            try:
+                from ..cloud.client import download_file
+                signed_url = self._client.get_output_download_url(job_id, rel_path)
+                download_file(signed_url, local_path)
+                QTimer.singleShot(0, lambda: self._append_log(
+                    f"Downloaded: {filename} -> {local_path}"
+                ))
+            except Exception as exc:
+                QTimer.singleShot(0, lambda: self._append_log(
+                    f"Download failed: {exc}"
+                ))
+
+        threading.Thread(target=_do_download, daemon=True).start()
+
+    @staticmethod
+    def _make_label(text: str) -> QLabel:
+        lbl = QLabel(text)
+        lbl.setObjectName("npEmptyLabel")
+        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        return lbl
 
     # ── submit ────────────────────────────────────────────────────
 
@@ -344,7 +493,6 @@ class WorkerRunDialog(QDialog):
             form.addRow(label_text, combo)
             return combo
 
-        # string, number, datetime
         le = QLineEdit()
         le.setObjectName("npRunInput")
         default = inp.get("default")
@@ -435,10 +583,6 @@ class WorkerRunDialog(QDialog):
 
     @staticmethod
     def _build_file_filter(filetypes: list[str] | None) -> str:
-        """Build a Qt file dialog filter string from a filetypes list.
-
-        E.g. [".csv", ".geojson"] → "Supported files (*.csv *.geojson);;All files (*)"
-        """
         if not filetypes:
             return ""
         exts = " ".join(f"*{ft}" for ft in filetypes)

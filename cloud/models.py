@@ -1,8 +1,8 @@
-"""Data models for the Worker Jobs API (spec 2026-04-15)."""
+"""Data models for the Worker Jobs API (spec 2026-04-16)."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
 
@@ -51,15 +51,9 @@ class InputSchemaEntry:
 
 
 @dataclass
-class OutputFile:
-    name: str
-    url: str
-
-
-@dataclass
 class PrepareRequest:
     tenantId: str
-    workerId: str  # Changed from workerName in 2026-04-13
+    workerId: str
     versionTag: str
     inputSchemaWithArgs: list[dict]
     machineType: str = "CPUx3"
@@ -97,9 +91,17 @@ class WorkerJob:
     inputParams: Optional[list[dict]] = None
     exitCode: Optional[int] = None
     exitFailureReason: Optional[str] = None
-    logUrl: Optional[str] = None  # Raw GCS path — not directly accessible
+    logUrl: Optional[str] = None
     logPreview: Optional[str] = None
-    outputFiles: Optional[list[OutputFile]] = None
-    outputExpiry: Optional[str] = None
-    jobStartedAt: Optional[str] = None  # Corrected from startedAt (2026-04-14)
-    jobEndedAt: Optional[str] = None    # Corrected from endedAt (2026-04-14)
+    hasOutputFiles: bool = False  # Replaces outputFiles/outputExpiry (2026-04-16)
+    jobStartedAt: Optional[str] = None
+    jobEndedAt: Optional[str] = None
+
+
+@dataclass
+class OutputEntry:
+    """A file or folder returned by GET /api/workers/job/{jobId}/outputs."""
+    path: str
+    isDir: bool
+    size: Optional[str] = None
+    lastModified: Optional[str] = None

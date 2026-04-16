@@ -11,23 +11,21 @@ TERMINAL_STATUSES = frozenset({
     "UPLOAD_FAILED", "SUBMIT_FAILED",
 })
 
-# Poll interval for checking job status after submission (ms).
 _POLL_INTERVAL_MS = 5000
 
 
 class JobSession(QObject):
     """Tracks state for a submitted worker job.
 
-    When *client* is provided the session runs the real prepare → upload →
-    submit flow against the API.  Without a client it falls back to a fake
-    log sequence for local UI development.
+    When *client* is provided the session runs the real prepare -> upload ->
+    submit flow.  Without a client it falls back to fake logs for local UI
+    development.  Use ``from_history()`` to create a read-only session from
+    a historical ``WorkerJob`` dict.
     """
 
     log_added = pyqtSignal(str)
     status_changed = pyqtSignal(str)
-
-    # Internal signal: background thread finished the submit phase.
-    _submit_phase_done = pyqtSignal(bool)  # True = success
+    _submit_phase_done = pyqtSignal(bool)
 
     def __init__(
         self,
@@ -51,6 +49,7 @@ class JobSession(QObject):
         self.session_id = f"WM-{random.randint(1000, 9999)}-ALPHA"
         self.start_time = datetime.now()
         self.logs: list[str] = []
+        self.has_output_files = False
 
         self._client = client
         self._cancelled = False
@@ -71,13 +70,40 @@ class JobSession(QObject):
             self._fake_timer.start(2500)
             self._next_fake_log()
 
+    # ── factory for historical jobs ──────────────────────────────
+
+    @classmethod
+    def from_history(cls, job_data: dict, client=None, parent=None):
+        """Create a read-only session from a GET /api/workers/jobs entry."""
+        session = cls(
+            worker_name=job_data.get("workerName", ""),
+            version=job_data.get("versionTag", ""),
+            tenant_id=job_data.get("tenantId", ""),
+            machine_type=job_data.get("machineType", ""),
+            input_args=job_data.get("inputParams") or [],
+            worker_id=job_data.get("workerId", ""),
+            client=None,
+            parent=parent,
+        )
+        # Stop the fake timer that __init__ started.
+        session._fake_timer.stop()
+        # Override with real data.
+        session.job_id = job_data.get("jobId")
+        session.session_id = (job_data.get("jobId") or "")[:13]
+        session.status = job_data.get("status", "UNKNOWN")
+        session.has_output_files = job_data.get("hasOutputFiles", False)
+        session._client = client
+        session.logs.clear()
+        if job_data.get("logPreview"):
+            session.logs.append(job_data["logPreview"])
+        return session
+
     # ── real flow (background thread) ────────────────────────────
 
     def _prepare_upload_submit(self):
         from ..cloud.client import upload_file_to_gcs, resolve_local_path, ApiError
 
         try:
-            # 1. Prepare
             self._emit_log("[INFO]  Preparing job\u2026")
             resp = self._client.prepare_job(
                 tenant_id=self.tenant_id,
@@ -94,8 +120,7 @@ class JobSession(QObject):
             if self._cancelled:
                 return
 
-            # 2. Upload files
-            uploads: list[tuple[str, str]] = []  # (local_path, upload_url)
+            uploads: list[tuple[str, str]] = []
             for entry in resp.inputSchemaWithArgs:
                 for item in entry.get("directoryTree") or []:
                     if "uploadUrl" in item:
@@ -117,12 +142,10 @@ class JobSession(QObject):
             if self._cancelled:
                 return
 
-            # 3. Submit
             self._emit_log("[INFO]  Submitting job\u2026")
             submit_resp = self._client.submit_job(resp.jobId)
             self._set_status(submit_resp.status)
             self._emit_log(f"[INFO]  Job status: {submit_resp.status}")
-
             self._submit_phase_done.emit(True)
 
         except ApiError as exc:
@@ -141,7 +164,6 @@ class JobSession(QObject):
     # ── post-submit polling (main thread) ────────────────────────
 
     def _on_submit_phase_done(self, success: bool):
-        """Start polling for status updates after a successful submit."""
         if not success or self.status in TERMINAL_STATUSES:
             return
         self._poll_timer = QTimer(self)
@@ -154,12 +176,12 @@ class JobSession(QObject):
         try:
             job = self._client.get_job(self.job_id)
         except Exception:
-            return  # silently retry on next tick
+            return
 
         if job.status != self.status:
             self._set_status(job.status)
+        self.has_output_files = job.hasOutputFiles
 
-        # Append new lines from logPreview.
         if job.logPreview and job.logPreview != self._last_log_preview:
             old_lines = (self._last_log_preview or "").splitlines()
             new_lines = job.logPreview.splitlines()
@@ -170,64 +192,10 @@ class JobSession(QObject):
         if job.status in TERMINAL_STATUSES:
             self._poll_timer.stop()
             threading.Thread(
-                target=self._on_terminal, args=(job,), daemon=True,
+                target=self._try_fetch_full_log, daemon=True,
             ).start()
 
-    # ── terminal-state handling (background thread) ──────────────
-
-    def _on_terminal(self, job):
-        """Download outputs on SUCCESS, then try to fetch the full log."""
-        if job.status == "SUCCESS":
-            self._download_outputs(job)
-        self._try_fetch_full_log()
-
-    def _download_outputs(self, job):
-        """Download output files to the local paths the user chose."""
-        import os
-        from ..cloud.client import download_file
-
-        if not job.outputFiles:
-            self._emit_log("[INFO]  No output files to download.")
-            return
-
-        # Build a map: output filename → local save path from input_args.
-        # Output file entries have type="file", readonly=False, args=local path.
-        output_map: dict[str, str] = {}
-        fallback_dir: str | None = None
-        for entry in self.input_args:
-            if (
-                entry.get("type") == "file"
-                and entry.get("readonly") is False
-                and entry.get("args")
-            ):
-                local_path = entry["args"]
-                filename = os.path.basename(local_path)
-                output_map[filename] = local_path
-                if fallback_dir is None:
-                    fallback_dir = os.path.dirname(local_path)
-
-        self._emit_log(f"[INFO]  Downloading {len(job.outputFiles)} output file(s)\u2026")
-
-        for i, out_file in enumerate(job.outputFiles, 1):
-            if self._cancelled:
-                return
-            local_path = output_map.get(out_file.name)
-            if not local_path and fallback_dir:
-                local_path = os.path.join(fallback_dir, out_file.name)
-            if not local_path:
-                self._emit_log(f"[WARN]  Skipping {out_file.name} (no local save path)")
-                continue
-            try:
-                self._emit_log(f"[INFO]  [{i}/{len(job.outputFiles)}] {out_file.name}")
-                download_file(out_file.url, local_path)
-                self._emit_log(f"[INFO]  Saved: {local_path}")
-            except Exception as exc:
-                self._emit_log(f"[ERROR] Failed to download {out_file.name}: {exc}")
-
-        self._emit_log("[INFO]  Download complete.")
-
     def _try_fetch_full_log(self):
-        """Attempt to fetch the full archived log after a terminal state."""
         if not self._client or not self.job_id:
             return
         try:
@@ -239,7 +207,7 @@ class JobSession(QObject):
             for line in log_text.splitlines():
                 self._emit_log(line)
         except Exception:
-            pass  # Log endpoint may 404 if logs aren't archived yet.
+            pass
 
     # ── cancel ───────────────────────────────────────────────────
 

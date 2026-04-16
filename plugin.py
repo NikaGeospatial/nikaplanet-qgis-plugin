@@ -107,6 +107,9 @@ class GeoEngineCloudPlugin:
         # populate the workers page with the results + invited tenants.
         QTimer.singleShot(0, self._refresh_and_load_workers)
 
+        # Fetch job history for the Sessions tab.
+        self.login_panel.workers_page.load_job_history()
+
     def _on_login_failed(self, error):
         QgsMessageLog.logMessage(
             f"Login failed: {error}", PLUGIN_LOG_TAG, Qgis.Warning
