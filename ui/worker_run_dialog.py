@@ -269,7 +269,19 @@ class WorkerRunDialog(QDialog):
         self._outputs_tree.itemExpanded.connect(self._on_folder_expanded)
         self._outputs_tree.itemDoubleClicked.connect(self._on_output_double_click)
 
-        self._detail_tabs.addTab(self._outputs_tree, "Outputs")
+        outputs_tab = QWidget()
+        outputs_lay = QVBoxLayout(outputs_tab)
+        outputs_lay.setContentsMargins(0, 0, 0, 0)
+        outputs_lay.setSpacing(6)
+        outputs_notice = QLabel(
+            "Outputs for jobs are automatically deleted after 3 days."
+        )
+        outputs_notice.setObjectName("npOutputsNotice")
+        outputs_notice.setWordWrap(True)
+        outputs_lay.addWidget(outputs_notice)
+        outputs_lay.addWidget(self._outputs_tree, 1)
+
+        self._detail_tabs.addTab(outputs_tab, "Outputs")
         self._detail_tabs.setTabEnabled(2, False)
 
         lay.addWidget(self._detail_tabs, 1)

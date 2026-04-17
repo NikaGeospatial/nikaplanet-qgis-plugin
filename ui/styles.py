@@ -61,6 +61,7 @@ DARK = {
     "divider":          "rgba(214,255,90,0.25)",
     "btn_outline_fg":   "#d4e5f0",
     "btn_outline_bdr":  "rgba(63,90,80,0.35)",
+    "notice":           "#ffa94d",
 }
 
 LIGHT = {
@@ -83,6 +84,7 @@ LIGHT = {
     "divider":          "rgba(74,122,0,0.15)",
     "btn_outline_fg":   "#1a1a1a",
     "btn_outline_bdr":  "rgba(0,0,0,0.18)",
+    "notice":           "#b8540a",
 }
 
 
@@ -472,6 +474,12 @@ def _stylesheet(c: dict) -> str:
 }}
 
 /* ── outputs file browser ──────────────────────────────────────────── */
+#npOutputsNotice {{
+    color: {c["notice"]};
+    font-size: 9pt;
+    font-style: italic;
+    padding: 2px 4px;
+}}
 #npOutputsTree {{
     background-color: {c["surface_low"]};
     color: {c["text"]};
