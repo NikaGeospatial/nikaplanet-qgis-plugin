@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 # QgsProcessingAlgorithm wrapper for remote task definitions fetched from
 # the geoengine-control server.
 import json

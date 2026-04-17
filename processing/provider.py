@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 # QgsProcessingProvider
 import json
 import urllib.request
@@ -12,7 +14,7 @@ from ..util.messages import PLUGIN_LOG_TAG
 from ..util.settings import get_control_server_url
 
 
-class GeoEngineCloudProvider(QgsProcessingProvider):
+class NikaPlanetProvider(QgsProcessingProvider):
     """A container for processing algorithms we will fetch from the cloud API."""
 
     def __init__(self, auth: AuthManager | None = None):
@@ -123,7 +125,7 @@ class GeoEngineCloudProvider(QgsProcessingProvider):
 
     def id(self):
         """Return unique provider id."""
-        return "geoengine-cloud"
+        return "nikaplanet"
 
     def name(self):
         """Return unique provider name."""

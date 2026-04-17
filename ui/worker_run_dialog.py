@@ -230,17 +230,29 @@ class WorkerRunDialog(QDialog):
 
         lay.addLayout(cards)
 
-        # Tabbed area: Log + Outputs
+        # Tabbed area: Log + Inputs + Outputs
         self._detail_tabs = QTabWidget()
         self._detail_tabs.setObjectName("npDetailTabs")
 
-        # -- Log tab --
+        # -- Log tab (index 0) --
         self._log_text = QPlainTextEdit()
         self._log_text.setObjectName("npLogArea")
         self._log_text.setReadOnly(True)
         self._detail_tabs.addTab(self._log_text, "Log")
 
-        # -- Outputs tab --
+        # -- Inputs tab (index 1) --
+        inputs_scroll = QScrollArea()
+        inputs_scroll.setWidgetResizable(True)
+        inputs_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        self._inputs_form_widget = QWidget()
+        self._inputs_form = QFormLayout(self._inputs_form_widget)
+        self._inputs_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
+        self._inputs_form.setSpacing(6)
+        self._inputs_form.setContentsMargins(12, 12, 12, 12)
+        inputs_scroll.setWidget(self._inputs_form_widget)
+        self._detail_tabs.addTab(inputs_scroll, "Inputs")
+
+        # -- Outputs tab (index 2) --
         self._outputs_tree = QTreeWidget()
         self._outputs_tree.setObjectName("npOutputsTree")
         self._outputs_tree.setHeaderLabels(["Name", "Size"])
@@ -258,7 +270,7 @@ class WorkerRunDialog(QDialog):
         self._outputs_tree.itemDoubleClicked.connect(self._on_output_double_click)
 
         self._detail_tabs.addTab(self._outputs_tree, "Outputs")
-        self._detail_tabs.setTabEnabled(1, False)
+        self._detail_tabs.setTabEnabled(2, False)
 
         lay.addWidget(self._detail_tabs, 1)
 
@@ -287,6 +299,8 @@ class WorkerRunDialog(QDialog):
         self._log_text.clear()
         for line in session.logs:
             self._log_text.appendPlainText(line)
+
+        self._populate_inputs(session.input_args)
 
         session.log_added.connect(self._append_log)
         session.status_changed.connect(self._on_status_change)
@@ -320,6 +334,37 @@ class WorkerRunDialog(QDialog):
         if self._session:
             self._session.cancel()
 
+    # ── inputs tab ───────────────────────────────────────────────
+
+    def _populate_inputs(self, input_args: list[dict]):
+        """Fill the Inputs tab with read-only name/value rows."""
+        # Clear any previous rows.
+        while self._inputs_form.rowCount():
+            self._inputs_form.removeRow(0)
+
+        if not input_args:
+            empty = QLabel("No inputs.")
+            empty.setObjectName("npLogSectionLabel")
+            self._inputs_form.addRow(empty)
+            return
+
+        for entry in input_args:
+            label_text = entry.get("description") or entry.get("name", "")
+            inp_type = entry.get("type", "string")
+            is_output = entry.get("output", False)
+            value = entry.get("args", "")
+
+            if is_output:
+                label_text = f"{label_text}  (output)"
+
+            val_lbl = QLabel(str(value) if value else "\u2014")
+            val_lbl.setObjectName("npRunInput")
+            val_lbl.setWordWrap(True)
+            val_lbl.setTextInteractionFlags(
+                Qt.TextInteractionFlag.TextSelectableByMouse
+            )
+            self._inputs_form.addRow(label_text, val_lbl)
+
     # ── outputs tab ──────────────────────────────────────────────
 
     def _maybe_enable_outputs(self):
@@ -331,7 +376,7 @@ class WorkerRunDialog(QDialog):
             and self._session.has_output_files
             and not self._outputs_loaded
         ):
-            self._detail_tabs.setTabEnabled(1, True)
+            self._detail_tabs.setTabEnabled(2, True)
             self._load_outputs()
 
     def _load_outputs(self):
@@ -636,8 +681,8 @@ class WorkerRunDialog(QDialog):
                 if key in inp_def:
                     entry[key] = inp_def[key]
 
-            if inp_type == "folder" and is_output:
-                pass
+            if is_output and value and inp_type == "folder":
+                entry["args"] = value if value.endswith("/") else value + "/"
             elif value:
                 entry["args"] = value
 
@@ -706,26 +751,25 @@ class WorkerRunDialog(QDialog):
         return le
 
     def _build_file_row(self, label_text, is_output, form, filetypes=None):
+        if is_output:
+            le = QLineEdit()
+            le.setObjectName("npRunInput")
+            le.setPlaceholderText("Enter output file name\u2026")
+            form.addRow(label_text, le)
+            return le
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
         le = QLineEdit()
         le.setObjectName("npRunInput")
-        le.setPlaceholderText(
-            "Select output file location\u2026" if is_output else "Select input file\u2026"
-        )
+        le.setPlaceholderText("Select input file\u2026")
         row.addWidget(le, 1)
         browse = QPushButton("Browse")
         browse.setObjectName("npBrowseBtn")
         browse.setCursor(Qt.CursorShape.PointingHandCursor)
         file_filter = self._build_file_filter(filetypes)
-        if is_output:
-            browse.clicked.connect(
-                lambda _=False, w=le, ff=file_filter: self._pick_save_file(w, ff)
-            )
-        else:
-            browse.clicked.connect(
-                lambda _=False, w=le, ff=file_filter: self._pick_open_file(w, ff)
-            )
+        browse.clicked.connect(
+            lambda _=False, w=le, ff=file_filter: self._pick_open_file(w, ff)
+        )
         row.addWidget(browse)
         container = QWidget()
         container.setLayout(row)
@@ -733,22 +777,23 @@ class WorkerRunDialog(QDialog):
         return le
 
     def _build_folder_row(self, label_text, is_output, form):
+        if is_output:
+            le = QLineEdit()
+            le.setObjectName("npRunInput")
+            le.setPlaceholderText("Enter output folder name\u2026")
+            form.addRow(label_text, le)
+            return le
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
         le = QLineEdit()
         le.setObjectName("npRunInput")
-        if is_output:
-            le.setPlaceholderText("Output folder (server sets path)")
-            le.setReadOnly(True)
-        else:
-            le.setPlaceholderText("Select input folder\u2026")
+        le.setPlaceholderText("Select input folder\u2026")
         row.addWidget(le, 1)
-        if not is_output:
-            browse = QPushButton("Browse")
-            browse.setObjectName("npBrowseBtn")
-            browse.setCursor(Qt.CursorShape.PointingHandCursor)
-            browse.clicked.connect(lambda _=False, w=le: self._pick_folder(w))
-            row.addWidget(browse)
+        browse = QPushButton("Browse")
+        browse.setObjectName("npBrowseBtn")
+        browse.setCursor(Qt.CursorShape.PointingHandCursor)
+        browse.clicked.connect(lambda _=False, w=le: self._pick_folder(w))
+        row.addWidget(browse)
         container = QWidget()
         container.setLayout(row)
         form.addRow(label_text, container)
@@ -758,11 +803,6 @@ class WorkerRunDialog(QDialog):
 
     def _pick_open_file(self, le: QLineEdit, file_filter: str = ""):
         path, _ = QFileDialog.getOpenFileName(self, "Select Input File", "", file_filter)
-        if path:
-            le.setText(path)
-
-    def _pick_save_file(self, le: QLineEdit, file_filter: str = ""):
-        path, _ = QFileDialog.getSaveFileName(self, "Select Output File Location", "", file_filter)
         if path:
             le.setText(path)
 

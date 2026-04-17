@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 # QgsSettings wrappers
 import os
 from pathlib import Path
