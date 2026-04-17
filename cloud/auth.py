@@ -31,7 +31,7 @@ PORT_RANGE = range(9004, 9100)
 LOGIN_TIMEOUT = 300  # seconds
 
 # QgsSettings keys (fallback when keyring is unavailable, and user info)
-_QS_PREFIX = "geoengine_cloud/"
+_QS_PREFIX = "nikaplanet/"
 _QS_ID_TOKEN = _QS_PREFIX + "id_token"
 _QS_REFRESH_TOKEN = _QS_PREFIX + "refresh_token"
 _QS_USER_INFO = _QS_PREFIX + "user_info"

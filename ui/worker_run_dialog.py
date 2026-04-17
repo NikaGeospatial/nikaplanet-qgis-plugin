@@ -230,17 +230,29 @@ class WorkerRunDialog(QDialog):
 
         lay.addLayout(cards)
 
-        # Tabbed area: Log + Outputs
+        # Tabbed area: Log + Inputs + Outputs
         self._detail_tabs = QTabWidget()
         self._detail_tabs.setObjectName("npDetailTabs")
 
-        # -- Log tab --
+        # -- Log tab (index 0) --
         self._log_text = QPlainTextEdit()
         self._log_text.setObjectName("npLogArea")
         self._log_text.setReadOnly(True)
         self._detail_tabs.addTab(self._log_text, "Log")
 
-        # -- Outputs tab --
+        # -- Inputs tab (index 1) --
+        inputs_scroll = QScrollArea()
+        inputs_scroll.setWidgetResizable(True)
+        inputs_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        self._inputs_form_widget = QWidget()
+        self._inputs_form = QFormLayout(self._inputs_form_widget)
+        self._inputs_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
+        self._inputs_form.setSpacing(6)
+        self._inputs_form.setContentsMargins(12, 12, 12, 12)
+        inputs_scroll.setWidget(self._inputs_form_widget)
+        self._detail_tabs.addTab(inputs_scroll, "Inputs")
+
+        # -- Outputs tab (index 2) --
         self._outputs_tree = QTreeWidget()
         self._outputs_tree.setObjectName("npOutputsTree")
         self._outputs_tree.setHeaderLabels(["Name", "Size"])
@@ -258,7 +270,7 @@ class WorkerRunDialog(QDialog):
         self._outputs_tree.itemDoubleClicked.connect(self._on_output_double_click)
 
         self._detail_tabs.addTab(self._outputs_tree, "Outputs")
-        self._detail_tabs.setTabEnabled(1, False)
+        self._detail_tabs.setTabEnabled(2, False)
 
         lay.addWidget(self._detail_tabs, 1)
 
@@ -287,6 +299,8 @@ class WorkerRunDialog(QDialog):
         self._log_text.clear()
         for line in session.logs:
             self._log_text.appendPlainText(line)
+
+        self._populate_inputs(session.input_args)
 
         session.log_added.connect(self._append_log)
         session.status_changed.connect(self._on_status_change)
@@ -320,6 +334,37 @@ class WorkerRunDialog(QDialog):
         if self._session:
             self._session.cancel()
 
+    # ── inputs tab ───────────────────────────────────────────────
+
+    def _populate_inputs(self, input_args: list[dict]):
+        """Fill the Inputs tab with read-only name/value rows."""
+        # Clear any previous rows.
+        while self._inputs_form.rowCount():
+            self._inputs_form.removeRow(0)
+
+        if not input_args:
+            empty = QLabel("No inputs.")
+            empty.setObjectName("npLogSectionLabel")
+            self._inputs_form.addRow(empty)
+            return
+
+        for entry in input_args:
+            label_text = entry.get("description") or entry.get("name", "")
+            inp_type = entry.get("type", "string")
+            is_output = entry.get("output", False)
+            value = entry.get("args", "")
+
+            if is_output:
+                label_text = f"{label_text}  (output)"
+
+            val_lbl = QLabel(str(value) if value else "\u2014")
+            val_lbl.setObjectName("npRunInput")
+            val_lbl.setWordWrap(True)
+            val_lbl.setTextInteractionFlags(
+                Qt.TextInteractionFlag.TextSelectableByMouse
+            )
+            self._inputs_form.addRow(label_text, val_lbl)
+
     # ── outputs tab ──────────────────────────────────────────────
 
     def _maybe_enable_outputs(self):
@@ -331,7 +376,7 @@ class WorkerRunDialog(QDialog):
             and self._session.has_output_files
             and not self._outputs_loaded
         ):
-            self._detail_tabs.setTabEnabled(1, True)
+            self._detail_tabs.setTabEnabled(2, True)
             self._load_outputs()
 
     def _load_outputs(self):

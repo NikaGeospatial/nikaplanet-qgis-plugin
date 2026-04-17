@@ -1,3 +1,3 @@
 def classFactory(iface):
-    from .plugin import GeoEngineCloudPlugin
-    return GeoEngineCloudPlugin(iface)
+    from .plugin import NikaPlanetPlugin
+    return NikaPlanetPlugin(iface)

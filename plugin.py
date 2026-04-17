@@ -6,11 +6,11 @@ from qgis.core import QgsMessageLog, Qgis, QgsApplication
 from .cloud.auth import AuthManager, debug_log_keyring_backends
 from .cloud.client import WorkerJobsClient
 from .util.messages import PLUGIN_LOG_TAG
-from .processing.provider import GeoEngineCloudProvider
+from .processing.provider import NikaPlanetProvider
 from .ui.login_panel import LoginPanel
 
 
-class GeoEngineCloudPlugin:
+class NikaPlanetPlugin:
     def __init__(self, iface):
         self.iface = iface
         self.toolbar_action = None
@@ -46,7 +46,7 @@ class GeoEngineCloudPlugin:
         QTimer.singleShot(0, self._try_auto_login)
 
     def initProcessing(self):
-        self.provider = GeoEngineCloudProvider(self.auth)
+        self.provider = NikaPlanetProvider(self.auth)
         QgsApplication.processingRegistry().addProvider(self.provider)
 
     def unload(self):
