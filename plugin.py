@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from qgis.PyQt.QtWidgets import QAction, QMessageBox
 from qgis.PyQt.QtCore import Qt, QTimer
 from qgis.core import QgsMessageLog, Qgis, QgsApplication

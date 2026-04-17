@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 # QgsProcessingProvider
 import json
 import urllib.request

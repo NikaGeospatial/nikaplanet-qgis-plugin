@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 # Centralized dark / light stylesheets for the NikaPlanet dock panel.
 #
 # Dark palette follows the "Cosmic Cartographer" design system (DESIGN.md).
