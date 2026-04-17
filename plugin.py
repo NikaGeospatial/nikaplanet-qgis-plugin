@@ -20,10 +20,10 @@ class NikaPlanetPlugin:
         self._user_info: dict | None = None
 
     def initGui(self):
-        self.toolbar_action = QAction("GeoEngine Cloud", self.iface.mainWindow())
+        self.toolbar_action = QAction("NikaPlanet", self.iface.mainWindow())
         self.toolbar_action.triggered.connect(self._toggle_panel)
         self.iface.addToolBarIcon(self.toolbar_action)
-        self.iface.addPluginToMenu("GeoEngine Cloud", self.toolbar_action)
+        self.iface.addPluginToMenu("NikaPlanet", self.toolbar_action)
 
         self.login_panel = LoginPanel(self.iface.mainWindow())
         self.iface.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.login_panel)
@@ -51,7 +51,7 @@ class NikaPlanetPlugin:
 
     def unload(self):
         self.iface.removeToolBarIcon(self.toolbar_action)
-        self.iface.removePluginMenu("GeoEngine Cloud", self.toolbar_action)
+        self.iface.removePluginMenu("NikaPlanet", self.toolbar_action)
         if self.login_panel:
             self.iface.removeDockWidget(self.login_panel)
             self.login_panel.deleteLater()
@@ -118,7 +118,7 @@ class NikaPlanetPlugin:
         )
         QMessageBox.warning(
             self.iface.mainWindow(),
-            "GeoEngine Cloud",
+            "NikaPlanet",
             f"Login failed:\n{error}",
         )
 

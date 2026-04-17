@@ -129,7 +129,7 @@ class NikaPlanetProvider(QgsProcessingProvider):
 
     def name(self):
         """Return unique provider name."""
-        return self.tr("GeoEngine Cloud")
+        return self.tr("NikaPlanet")
 
     def icon(self) -> QIcon:
         """Return the provider icon."""

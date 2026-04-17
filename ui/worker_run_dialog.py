@@ -122,7 +122,7 @@ class WorkerRunDialog(QDialog):
             all_types = ["CPUx3"]
         for mt in all_types:
             self._machine_combo.addItem(mt)
-        form.addRow("Compute", self._machine_combo)
+        form.addRow(self._make_form_label("Compute"), self._machine_combo)
 
         inputs_def = (
             self._worker.get("inputs")
@@ -310,7 +310,7 @@ class WorkerRunDialog(QDialog):
         self._tick_duration()
 
         is_terminal = session.status in TERMINAL_STATUSES
-        self._cancel_btn.setEnabled(not is_terminal)
+        self._cancel_btn.setVisible(not is_terminal)
         if is_terminal:
             self._dur_timer.stop()
 
@@ -322,7 +322,7 @@ class WorkerRunDialog(QDialog):
     def _on_status_change(self, status: str):
         self._status_lbl.setText(f"\u2022 {status}")
         if status in TERMINAL_STATUSES:
-            self._cancel_btn.setEnabled(False)
+            self._cancel_btn.hide()
             self._dur_timer.stop()
         self._maybe_enable_outputs()
 
@@ -363,7 +363,7 @@ class WorkerRunDialog(QDialog):
             val_lbl.setTextInteractionFlags(
                 Qt.TextInteractionFlag.TextSelectableByMouse
             )
-            self._inputs_form.addRow(label_text, val_lbl)
+            self._inputs_form.addRow(self._make_form_label(label_text), val_lbl)
 
     # ── outputs tab ──────────────────────────────────────────────
 
@@ -707,6 +707,12 @@ class WorkerRunDialog(QDialog):
 
     # ── input widget builders ─────────────────────────────────────
 
+    @staticmethod
+    def _make_form_label(text: str) -> QLabel:
+        lbl = QLabel(text)
+        lbl.setWordWrap(True)
+        return lbl
+
     def _build_input_widget(self, inp: dict, form: QFormLayout):
         inp_type = inp.get("type", "string")
         inp_desc = inp.get("description", inp.get("name", ""))
@@ -725,7 +731,7 @@ class WorkerRunDialog(QDialog):
         if inp_type == "boolean":
             cb = QCheckBox()
             cb.setObjectName("npRunCheckbox")
-            form.addRow(label_text, cb)
+            form.addRow(self._make_form_label(label_text), cb)
             return cb
         if inp_type == "enum":
             combo = QComboBox()
@@ -737,7 +743,7 @@ class WorkerRunDialog(QDialog):
                 idx = combo.findText(str(default))
                 if idx >= 0:
                     combo.setCurrentIndex(idx)
-            form.addRow(label_text, combo)
+            form.addRow(self._make_form_label(label_text), combo)
             return combo
 
         le = QLineEdit()
@@ -747,7 +753,7 @@ class WorkerRunDialog(QDialog):
             le.setText(str(default))
         else:
             le.setPlaceholderText(f"Enter {inp_type}\u2026")
-        form.addRow(label_text, le)
+        form.addRow(self._make_form_label(label_text), le)
         return le
 
     def _build_file_row(self, label_text, is_output, form, filetypes=None):
@@ -755,7 +761,7 @@ class WorkerRunDialog(QDialog):
             le = QLineEdit()
             le.setObjectName("npRunInput")
             le.setPlaceholderText("Enter output file name\u2026")
-            form.addRow(label_text, le)
+            form.addRow(self._make_form_label(label_text), le)
             return le
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
@@ -773,7 +779,7 @@ class WorkerRunDialog(QDialog):
         row.addWidget(browse)
         container = QWidget()
         container.setLayout(row)
-        form.addRow(label_text, container)
+        form.addRow(self._make_form_label(label_text), container)
         return le
 
     def _build_folder_row(self, label_text, is_output, form):
@@ -781,7 +787,7 @@ class WorkerRunDialog(QDialog):
             le = QLineEdit()
             le.setObjectName("npRunInput")
             le.setPlaceholderText("Enter output folder name\u2026")
-            form.addRow(label_text, le)
+            form.addRow(self._make_form_label(label_text), le)
             return le
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
@@ -796,7 +802,7 @@ class WorkerRunDialog(QDialog):
         row.addWidget(browse)
         container = QWidget()
         container.setLayout(row)
-        form.addRow(label_text, container)
+        form.addRow(self._make_form_label(label_text), container)
         return le
 
     # ── pickers ───────────────────────────────────────────────────
