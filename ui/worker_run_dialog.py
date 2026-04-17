@@ -636,8 +636,8 @@ class WorkerRunDialog(QDialog):
                 if key in inp_def:
                     entry[key] = inp_def[key]
 
-            if inp_type == "folder" and is_output:
-                pass
+            if is_output and value and inp_type == "folder":
+                entry["args"] = value if value.endswith("/") else value + "/"
             elif value:
                 entry["args"] = value
 
@@ -706,26 +706,25 @@ class WorkerRunDialog(QDialog):
         return le
 
     def _build_file_row(self, label_text, is_output, form, filetypes=None):
+        if is_output:
+            le = QLineEdit()
+            le.setObjectName("npRunInput")
+            le.setPlaceholderText("Enter output file name\u2026")
+            form.addRow(label_text, le)
+            return le
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
         le = QLineEdit()
         le.setObjectName("npRunInput")
-        le.setPlaceholderText(
-            "Select output file location\u2026" if is_output else "Select input file\u2026"
-        )
+        le.setPlaceholderText("Select input file\u2026")
         row.addWidget(le, 1)
         browse = QPushButton("Browse")
         browse.setObjectName("npBrowseBtn")
         browse.setCursor(Qt.CursorShape.PointingHandCursor)
         file_filter = self._build_file_filter(filetypes)
-        if is_output:
-            browse.clicked.connect(
-                lambda _=False, w=le, ff=file_filter: self._pick_save_file(w, ff)
-            )
-        else:
-            browse.clicked.connect(
-                lambda _=False, w=le, ff=file_filter: self._pick_open_file(w, ff)
-            )
+        browse.clicked.connect(
+            lambda _=False, w=le, ff=file_filter: self._pick_open_file(w, ff)
+        )
         row.addWidget(browse)
         container = QWidget()
         container.setLayout(row)
@@ -733,22 +732,23 @@ class WorkerRunDialog(QDialog):
         return le
 
     def _build_folder_row(self, label_text, is_output, form):
+        if is_output:
+            le = QLineEdit()
+            le.setObjectName("npRunInput")
+            le.setPlaceholderText("Enter output folder name\u2026")
+            form.addRow(label_text, le)
+            return le
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
         le = QLineEdit()
         le.setObjectName("npRunInput")
-        if is_output:
-            le.setPlaceholderText("Output folder (server sets path)")
-            le.setReadOnly(True)
-        else:
-            le.setPlaceholderText("Select input folder\u2026")
+        le.setPlaceholderText("Select input folder\u2026")
         row.addWidget(le, 1)
-        if not is_output:
-            browse = QPushButton("Browse")
-            browse.setObjectName("npBrowseBtn")
-            browse.setCursor(Qt.CursorShape.PointingHandCursor)
-            browse.clicked.connect(lambda _=False, w=le: self._pick_folder(w))
-            row.addWidget(browse)
+        browse = QPushButton("Browse")
+        browse.setObjectName("npBrowseBtn")
+        browse.setCursor(Qt.CursorShape.PointingHandCursor)
+        browse.clicked.connect(lambda _=False, w=le: self._pick_folder(w))
+        row.addWidget(browse)
         container = QWidget()
         container.setLayout(row)
         form.addRow(label_text, container)
@@ -758,11 +758,6 @@ class WorkerRunDialog(QDialog):
 
     def _pick_open_file(self, le: QLineEdit, file_filter: str = ""):
         path, _ = QFileDialog.getOpenFileName(self, "Select Input File", "", file_filter)
-        if path:
-            le.setText(path)
-
-    def _pick_save_file(self, le: QLineEdit, file_filter: str = ""):
-        path, _ = QFileDialog.getSaveFileName(self, "Select Output File Location", "", file_filter)
         if path:
             le.setText(path)
 
