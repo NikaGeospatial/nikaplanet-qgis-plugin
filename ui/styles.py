@@ -313,6 +313,7 @@ def _stylesheet(c: dict) -> str:
 }}
 #npRunFormLabel {{
     color: {c["text"]};
+    font-size: 10pt;
 }}
 #npRunDialogTitle {{
     color: {c["text"]};
