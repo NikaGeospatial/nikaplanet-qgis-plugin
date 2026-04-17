@@ -17,6 +17,7 @@ from qgis.PyQt.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QStackedWidget,
     QTabWidget,
     QTreeWidget,
@@ -712,6 +713,10 @@ class WorkerRunDialog(QDialog):
         lbl = QLabel(text)
         lbl.setObjectName("npRunFormLabel")
         lbl.setWordWrap(True)
+        lbl.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.MinimumExpanding,
+        )
+        lbl.setMinimumWidth(1)
         return lbl
 
     def _build_input_widget(self, inp: dict, form: QFormLayout):
