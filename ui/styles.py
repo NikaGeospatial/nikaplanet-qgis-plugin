@@ -311,9 +311,8 @@ def _stylesheet(c: dict) -> str:
 #npRunDialog {{
     background-color: {c["bg"]};
 }}
-#npRunDialog QLabel {{
+#npRunFormLabel {{
     color: {c["text"]};
-    font-size: 10pt;
 }}
 #npRunDialogTitle {{
     color: {c["text"]};

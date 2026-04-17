@@ -710,6 +710,7 @@ class WorkerRunDialog(QDialog):
     @staticmethod
     def _make_form_label(text: str) -> QLabel:
         lbl = QLabel(text)
+        lbl.setObjectName("npRunFormLabel")
         lbl.setWordWrap(True)
         return lbl
 
