@@ -187,9 +187,9 @@ class JobSession(QObject):
         except Exception:
             return
 
+        self.has_output_files = job.hasOutputFiles
         if job.status != self.status:
             self._set_status(job.status)
-        self.has_output_files = job.hasOutputFiles
 
         if job.logPreview and job.logPreview != self._last_log_preview:
             old_lines = (self._last_log_preview or "").splitlines()
