@@ -24,9 +24,91 @@ from qgis.PyQt.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from qgis.PyQt.QtCore import Qt, QTimer, pyqtSignal
+from qgis.PyQt.QtCore import Qt, QTimer, QUrl, pyqtSignal
+from qgis.gui import QgsMapLayerComboBox
 
 from .job_session import TERMINAL_STATUSES, JobSession
+
+
+def _strip_qgis_source_uri_suffix(source: str) -> str:
+    """Strip QGIS provider URI suffixes like '|layername=foo' from local file sources."""
+    if not source:
+        return source
+    if source.startswith("file://"):
+        local = QUrl(source).toLocalFile()
+        if local:
+            source = local
+    if "|" in source:
+        source = source.split("|", 1)[0]
+    return source
+
+
+class MapLayerOrFileWidget(QWidget):
+    """Map-layer combo box with a file picker button for 'file' inputs."""
+
+    def __init__(self, filetypes: list[str] | None = None, parent=None):
+        super().__init__(parent)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        self._combo = QgsMapLayerComboBox()
+        self._combo.setObjectName("npRunCombo")
+        self._combo.setAllowEmptyLayer(True)
+        self._combo.layerChanged.connect(self._on_layer_changed)
+        layout.addWidget(self._combo, 1)
+
+        self._button = QPushButton("Browse")
+        self._button.setObjectName("npBrowseBtn")
+        self._button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._button.setToolTip("Select a file from disk")
+        self._button.clicked.connect(self._pick_file)
+        layout.addWidget(self._button)
+
+        self._file_path = ""
+        self._use_file = False
+
+        if filetypes:
+            pattern = " ".join(f"*{ft}" for ft in filetypes)
+            self._file_filter = f"Accepted files ({pattern});;All Files (*)"
+        else:
+            self._file_filter = "All Files (*)"
+
+    def _on_layer_changed(self, layer):
+        selected_text = self._combo.currentText()
+        is_file_entry_selected = (
+            layer is None
+            and bool(self._file_path)
+            and selected_text == self._file_path
+        )
+        if not is_file_entry_selected:
+            self._file_path = ""
+            self._use_file = False
+
+    def _pick_file(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select File", "", self._file_filter,
+        )
+        if path:
+            self._file_path = path
+            self._use_file = True
+            self._reflect_file_in_combo(path)
+
+    def _reflect_file_in_combo(self, path: str):
+        items = self._combo.additionalItems()
+        if path not in items:
+            items.append(path)
+            self._combo.setAdditionalItems(items)
+        idx = self._combo.findText(path)
+        if idx >= 0:
+            self._combo.setCurrentIndex(idx)
+
+    def value(self) -> str:
+        if self._use_file and self._file_path:
+            return self._file_path
+        layer = self._combo.currentLayer()
+        if layer:
+            return _strip_qgis_source_uri_suffix(layer.source())
+        return ""
 
 
 class WorkerRunDialog(QDialog):
@@ -776,24 +858,9 @@ class WorkerRunDialog(QDialog):
             le.setPlaceholderText("Enter output file name\u2026")
             form.addRow(self._make_form_label(label_text), le)
             return le
-        row = QHBoxLayout()
-        row.setContentsMargins(0, 0, 0, 0)
-        le = QLineEdit()
-        le.setObjectName("npRunInput")
-        le.setPlaceholderText("Select input file\u2026")
-        row.addWidget(le, 1)
-        browse = QPushButton("Browse")
-        browse.setObjectName("npBrowseBtn")
-        browse.setCursor(Qt.CursorShape.PointingHandCursor)
-        file_filter = self._build_file_filter(filetypes)
-        browse.clicked.connect(
-            lambda _=False, w=le, ff=file_filter: self._pick_open_file(w, ff)
-        )
-        row.addWidget(browse)
-        container = QWidget()
-        container.setLayout(row)
-        form.addRow(self._make_form_label(label_text), container)
-        return le
+        widget = MapLayerOrFileWidget(filetypes=filetypes)
+        form.addRow(self._make_form_label(label_text), widget)
+        return widget
 
     def _build_folder_row(self, label_text, is_output, form):
         if is_output:
@@ -820,11 +887,6 @@ class WorkerRunDialog(QDialog):
 
     # ── pickers ───────────────────────────────────────────────────
 
-    def _pick_open_file(self, le: QLineEdit, file_filter: str = ""):
-        path, _ = QFileDialog.getOpenFileName(self, "Select Input File", "", file_filter)
-        if path:
-            le.setText(path)
-
     def _pick_folder(self, le: QLineEdit):
         path = QFileDialog.getExistingDirectory(self, "Select Folder")
         if path:
@@ -834,6 +896,8 @@ class WorkerRunDialog(QDialog):
 
     @staticmethod
     def _widget_value(widget) -> str | None:
+        if isinstance(widget, MapLayerOrFileWidget):
+            return widget.value().strip() or None
         if isinstance(widget, QCheckBox):
             return str(widget.isChecked()).lower()
         if isinstance(widget, QComboBox):
@@ -841,13 +905,6 @@ class WorkerRunDialog(QDialog):
         if isinstance(widget, QLineEdit):
             return widget.text().strip() or None
         return None
-
-    @staticmethod
-    def _build_file_filter(filetypes: list[str] | None) -> str:
-        if not filetypes:
-            return ""
-        exts = " ".join(f"*{ft}" for ft in filetypes)
-        return f"Supported files ({exts});;All files (*)"
 
     @staticmethod
     def _build_directory_tree(local_path: str, inp_type: str) -> list[dict] | None:
