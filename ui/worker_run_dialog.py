@@ -14,6 +14,7 @@ from qgis.PyQt.QtWidgets import (
     QLabel,
     QLineEdit,
     QMenu,
+    QMessageBox,
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
@@ -25,8 +26,10 @@ from qgis.PyQt.QtWidgets import (
     QWidget,
 )
 from qgis.PyQt.QtCore import Qt, QTimer, QUrl, pyqtSignal
+from qgis.core import Qgis, QgsMessageLog
 from qgis.gui import QgsMapLayerComboBox
 
+from ..util.messages import PLUGIN_LOG_TAG
 from .job_session import TERMINAL_STATUSES, JobSession
 
 
@@ -598,6 +601,52 @@ class WorkerRunDialog(QDialog):
         threading.Thread(target=_do_download, daemon=True).start()
 
     _SHP_EXTENSIONS = frozenset({".shp", ".shx", ".dbf", ".prj", ".cpg"})
+    _EXPECTED_SHP_SIDECARS = (".shx", ".dbf", ".prj")
+
+    @classmethod
+    def _missing_shapefile_sidecars(cls, local_path: str) -> list[str]:
+        """Return expected sidecar extensions missing next to ``local_path``.
+
+        Returns [] when the path isn't a shapefile or the file doesn't exist.
+        """
+        if not local_path or not os.path.isfile(local_path):
+            return []
+        if os.path.splitext(local_path)[1].lower() != ".shp":
+            return []
+        directory = os.path.dirname(local_path)
+        stem = os.path.splitext(os.path.basename(local_path))[0]
+        try:
+            names = os.listdir(directory)
+        except OSError:
+            return list(cls._EXPECTED_SHP_SIDECARS)
+        present = {
+            os.path.splitext(n)[1].lower()
+            for n in names
+            if os.path.splitext(n)[0] == stem
+        }
+        return [ext for ext in cls._EXPECTED_SHP_SIDECARS if ext not in present]
+
+    def _confirm_missing_sidecars(
+        self, missing: list[tuple[str, list[str]]],
+    ) -> bool:
+        """Show a Yes/No dialog listing shapefiles with missing sidecars."""
+        lines = [
+            f"  \u2022 {name} ({', '.join(exts)})"
+            for name, exts in missing
+        ]
+        text = (
+            "Some sidecar files are missing for:\n\n"
+            + "\n".join(lines)
+            + "\n\nProceed with submission anyway?"
+        )
+        reply = QMessageBox.question(
+            self,
+            "Missing shapefile sidecars",
+            text,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return reply == QMessageBox.StandardButton.Yes
 
     def _find_shapefile_siblings(self, item: QTreeWidgetItem) -> list[QTreeWidgetItem]:
         """Return all sibling items that share the same stem and have a shapefile extension."""
@@ -760,6 +809,7 @@ class WorkerRunDialog(QDialog):
 
     def _on_submit(self):
         schema_with_args = []
+        missing_sidecars: list[tuple[str, list[str]]] = []
         for item in self._input_widgets:
             inp_def = item["def"]
             widget = item["widget"]
@@ -784,8 +834,15 @@ class WorkerRunDialog(QDialog):
                 tree = self._build_directory_tree(value, inp_type)
                 if tree:
                     entry["directoryTree"] = tree
+                if inp_type == "file":
+                    missing = self._missing_shapefile_sidecars(value)
+                    if missing:
+                        missing_sidecars.append((os.path.basename(value), missing))
 
             schema_with_args.append(entry)
+
+        if missing_sidecars and not self._confirm_missing_sidecars(missing_sidecars):
+            return
 
         session = JobSession(
             worker_name=self._worker.get("name", "unknown"),
@@ -909,10 +966,51 @@ class WorkerRunDialog(QDialog):
     @staticmethod
     def _build_directory_tree(local_path: str, inp_type: str) -> list[dict] | None:
         if inp_type == "file" and os.path.isfile(local_path):
-            return [{
+            entries = [{
                 "path": os.path.basename(local_path),
                 "sizeInBytes": os.path.getsize(local_path),
             }]
+            if os.path.splitext(local_path)[1].lower() == ".shp":
+                QgsMessageLog.logMessage(
+                    f"Shapefile input detected ({os.path.basename(local_path)}), "
+                    "loading sidecar files\u2026",
+                    PLUGIN_LOG_TAG,
+                    Qgis.Info,
+                )
+                directory = os.path.dirname(local_path)
+                stem = os.path.splitext(os.path.basename(local_path))[0]
+                found = 0
+                for fname in os.listdir(directory):
+                    fstem, fext = os.path.splitext(fname)
+                    if fstem != stem or fext.lower() not in WorkerRunDialog._SHP_EXTENSIONS:
+                        continue
+                    if fname == os.path.basename(local_path):
+                        continue
+                    full = os.path.join(directory, fname)
+                    if os.path.isfile(full):
+                        entries.append({
+                            "path": fname,
+                            "sizeInBytes": os.path.getsize(full),
+                        })
+                        QgsMessageLog.logMessage(
+                            f"Discovered {fext.lower()} sidecar: {fname}",
+                            PLUGIN_LOG_TAG,
+                            Qgis.Info,
+                        )
+                        found += 1
+                if found == 0:
+                    QgsMessageLog.logMessage(
+                        f"No sidecar files found for {os.path.basename(local_path)}",
+                        PLUGIN_LOG_TAG,
+                        Qgis.Warning,
+                    )
+                else:
+                    QgsMessageLog.logMessage(
+                        f"Bundled {found} sidecar file(s) with {os.path.basename(local_path)}",
+                        PLUGIN_LOG_TAG,
+                        Qgis.Info,
+                    )
+            return entries
         if inp_type == "folder" and os.path.isdir(local_path):
             parent = os.path.dirname(local_path.rstrip(os.sep))
             tree = []

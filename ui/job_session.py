@@ -155,6 +155,15 @@ class JobSession(QObject):
             submit_resp = self._client.submit_job(resp.jobId)
             self._set_status(submit_resp.status)
             self._emit_log(f"[INFO]  Job status: {submit_resp.status}")
+            if self.machine_type.lower() == "cpux3":
+                self._emit_log(
+                    "[INFO]  CPUx3 starting, cold starts can take ~30s"
+                )
+            else:
+                self._emit_log(
+                    f"[INFO]  {self.machine_type} starting, cold starts can "
+                    "take 2-3 min to begin"
+                )
             self._submit_phase_done.emit(True)
 
         except ApiError as exc:
