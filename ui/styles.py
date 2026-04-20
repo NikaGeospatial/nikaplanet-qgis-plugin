@@ -35,6 +35,10 @@ def _get_arrow_paths(c: dict) -> tuple[str, str]:
             f'<polygon points="0,2 10,2 5,9" fill="{c["primary"]}"/></svg>'
         )
 
+    # QSS url() requires forward slashes on all platforms (including Windows).
+    right = right.replace("\\", "/")
+    down = down.replace("\\", "/")
+
     _arrow_cache[key] = (right, down)
     return right, down
 
@@ -552,6 +556,7 @@ def _stylesheet(c: dict) -> str:
     font-size: 9pt;
     font-weight: 600;
     padding: 6px 14px;
+    min-width: 70px;
 }}
 #npDetailTabs > QTabBar::tab:selected {{
     color: {c["primary"]};

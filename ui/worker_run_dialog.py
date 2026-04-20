@@ -318,6 +318,9 @@ class WorkerRunDialog(QDialog):
         # Tabbed area: Log + Inputs + Outputs
         self._detail_tabs = QTabWidget()
         self._detail_tabs.setObjectName("npDetailTabs")
+        # Prevent Windows from eliding tab labels when the bar is tight.
+        self._detail_tabs.tabBar().setElideMode(Qt.TextElideMode.ElideNone)
+        self._detail_tabs.setUsesScrollButtons(True)
 
         # -- Log tab (index 0) --
         self._log_text = QPlainTextEdit()
