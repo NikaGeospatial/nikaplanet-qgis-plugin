@@ -177,6 +177,21 @@ class NikaPlanetPlugin:
         """Main thread: register algorithms and populate the workers page."""
         self.provider._preloaded_tasks = list(owned_workers)
         self.provider.refreshAlgorithms()
+        user = self._user_info or {}
+        tenants_with_ids: list[dict] = []
+        owned = user.get("ownedTenant") or {}
+        if owned.get("id"):
+            tenants_with_ids.append({
+                "id": owned["id"],
+                "name": owned.get("name", "My Team"),
+            })
+        for inv in user.get("invitedTenants") or []:
+            if inv.get("id"):
+                tenants_with_ids.append({
+                    "id": inv["id"],
+                    "name": inv.get("name", "Team"),
+                })
+        self.login_panel.workers_page.set_tenants(tenants_with_ids)
         self.login_panel.workers_page.set_workers_data(tenants_data)
         total = sum(len(t["workers"]) for t in tenants_data)
         QgsMessageLog.logMessage(

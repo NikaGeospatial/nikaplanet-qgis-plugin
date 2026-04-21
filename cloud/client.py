@@ -123,16 +123,33 @@ class WorkerJobsClient:
         self,
         worker_id: str | None = None,
         status: str | None = None,
+        all_teams: bool = False,
+        tenant_id: str | None = None,
+        version_id: str | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
     ) -> list[WorkerJob]:
         """GET /api/workers/jobs
 
-        Returns all jobs created by the authenticated user.
+        Default scope (2026-04-20): only jobs created by the authenticated
+        user. Pass ``all_teams=True`` to include jobs by other members of
+        accessible tenants.
         """
         params: dict[str, str] = {}
         if worker_id:
             params["workerId"] = worker_id
         if status:
             params["status"] = status
+        if all_teams:
+            params["allTeams"] = "true"
+        if tenant_id:
+            params["tenantId"] = tenant_id
+        if version_id:
+            params["versionId"] = version_id
+        if start_date:
+            params["startDate"] = start_date
+        if end_date:
+            params["endDate"] = end_date
         data = self._request("GET", "/api/workers/jobs", params=params)
         return [_parse_worker_job(j) for j in data.get("jobs", [])]
 

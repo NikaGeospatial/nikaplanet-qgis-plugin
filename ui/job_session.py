@@ -26,6 +26,8 @@ class JobSession(QObject):
     log_added = pyqtSignal(str)
     status_changed = pyqtSignal(str)
     session_id_changed = pyqtSignal(str)
+    log_fetch_started = pyqtSignal()
+    log_fetch_finished = pyqtSignal()
     _submit_phase_done = pyqtSignal(bool)
 
     def __init__(
@@ -49,6 +51,7 @@ class JobSession(QObject):
         self.job_id: str | None = None
         self.session_id = f"WM-{random.randint(1000, 9999)}-ALPHA"
         self.start_time = datetime.now()
+        self.created_at = self.start_time
         self.logs: list[str] = []
         self.has_output_files = False
 
@@ -97,6 +100,14 @@ class JobSession(QObject):
         session.logs.clear()
         if job_data.get("logPreview"):
             session.logs.append(job_data["logPreview"])
+        created_at = job_data.get("createdAt")
+        if created_at:
+            try:
+                session.created_at = datetime.fromisoformat(
+                    created_at.replace("Z", "+00:00")
+                ).replace(tzinfo=None)
+            except (ValueError, TypeError, AttributeError):
+                pass
 
         # Fetch the full log for terminal jobs that have a client.
         if session.status in TERMINAL_STATUSES and client and session.job_id:
@@ -216,6 +227,7 @@ class JobSession(QObject):
     def _try_fetch_full_log(self):
         if not self._client or not self.job_id:
             return
+        self.log_fetch_started.emit()
         try:
             signed_url = self._client.get_job_log_url(self.job_id)
             import urllib.request
@@ -227,6 +239,8 @@ class JobSession(QObject):
         except Exception:
             if not self.logs:
                 self._emit_log("No logs found.")
+        finally:
+            self.log_fetch_finished.emit()
 
     # ── cancel ───────────────────────────────────────────────────
 

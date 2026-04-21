@@ -25,7 +25,15 @@ from qgis.PyQt.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from qgis.PyQt.QtCore import Qt, QTimer, QUrl, pyqtSignal
+from qgis.PyQt.QtCore import (
+    Qt,
+    QRectF,
+    QTimer,
+    QUrl,
+    QVariantAnimation,
+    pyqtSignal,
+)
+from qgis.PyQt.QtGui import QPainter, QPen
 from qgis.core import (
     Qgis,
     QgsMessageLog,
@@ -68,6 +76,59 @@ def _strip_qgis_source_uri_suffix(source: str) -> str:
     if "|" in source:
         source = source.split("|", 1)[0]
     return source
+
+
+class _Spinner(QWidget):
+    """Small rotating glyph that paints only while running."""
+
+    def __init__(self, size: int = 14, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(size, size)
+        self._angle = 0.0
+        self._running = False
+        self._anim = QVariantAnimation(self)
+        self._anim.setStartValue(0.0)
+        self._anim.setEndValue(360.0)
+        self._anim.setDuration(900)
+        self._anim.setLoopCount(-1)
+        self._anim.valueChanged.connect(self._set_angle)
+
+    def _set_angle(self, value):
+        self._angle = float(value)
+        self.update()
+
+    def start(self):
+        if not self._running:
+            self._running = True
+            self._anim.start()
+            self.update()
+
+    def stop(self):
+        if self._running:
+            self._running = False
+            self._anim.stop()
+            self._angle = 0.0
+            self.update()
+
+    def paintEvent(self, a0):
+        if not self._running:
+            return
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        pen_width = max(1.5, self.width() / 7.0)
+        pen = QPen(self.palette().windowText().color())
+        pen.setWidthF(pen_width)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        p.setPen(pen)
+        m = pen_width / 2.0 + 1.0
+        rect = QRectF(
+            m, m, self.width() - 2 * m, self.height() - 2 * m,
+        )
+        # Qt: angles in 16ths of a degree, 0° = 3 o'clock, positive = CCW.
+        # Negating _angle spins the gap clockwise as the animation advances.
+        start_angle = int(-self._angle * 16)
+        span_angle = 270 * 16
+        p.drawArc(rect, start_angle, span_angle)
 
 
 class MapLayerOrFileWidget(QWidget):
@@ -163,6 +224,7 @@ class WorkerRunDialog(QDialog):
         self._post_run_behavior = _POST_RUN_NOTHING
         self._post_run_dest: str | None = None
         self._post_run_done = False
+        self._outputs_notice_pending = False
 
         self._post_run_log_requested.connect(self._append_log)
         self._post_run_add_layers_requested.connect(self._add_outputs_as_layers)
@@ -351,6 +413,9 @@ class WorkerRunDialog(QDialog):
         self._status_lbl = QLabel("")
         self._status_lbl.setObjectName("npStatusValue")
         sc.addWidget(self._status_lbl)
+        self._status_spinner = _Spinner(size=14)
+        sc.addWidget(self._status_spinner)
+        self._log_fetching = False
         sc.addStretch()
         cards.addWidget(status_card, 1)
 
@@ -460,6 +525,8 @@ class WorkerRunDialog(QDialog):
         session.log_added.connect(self._append_log)
         session.status_changed.connect(self._on_status_change)
         session.session_id_changed.connect(self._sid_lbl.setText)
+        session.log_fetch_started.connect(self._on_log_fetch_started)
+        session.log_fetch_finished.connect(self._on_log_fetch_finished)
 
         self._dur_timer.start(1000)
         self._tick_duration()
@@ -469,6 +536,7 @@ class WorkerRunDialog(QDialog):
         if is_terminal:
             self._dur_timer.stop()
 
+        self._update_status_spinner()
         self._maybe_enable_outputs()
 
     def _append_log(self, line: str):
@@ -479,8 +547,32 @@ class WorkerRunDialog(QDialog):
         if status in TERMINAL_STATUSES:
             self._cancel_btn.hide()
             self._dur_timer.stop()
+        self._update_status_spinner()
         self._maybe_enable_outputs()
         self._maybe_run_post_behavior()
+
+    def _on_log_fetch_started(self):
+        self._log_fetching = True
+        self._update_status_spinner()
+
+    def _on_log_fetch_finished(self):
+        self._log_fetching = False
+        self._update_status_spinner()
+        if self._outputs_notice_pending:
+            self._outputs_notice_pending = False
+            self._append_log(
+                'Please see the "Outputs" tab to view the outputs.'
+            )
+
+    def _update_status_spinner(self):
+        active = (
+            self._session is not None
+            and self._session.status not in TERMINAL_STATUSES
+        )
+        if active or self._log_fetching:
+            self._status_spinner.start()
+        else:
+            self._status_spinner.stop()
 
     def _tick_duration(self):
         if self._session:
@@ -701,8 +793,15 @@ class WorkerRunDialog(QDialog):
             _log(
                 f"Failed files: {', '.join(failed)}", Qgis.Warning
             )
+            self._append_log(
+                f"[WARN]  Failed to add as layers: {', '.join(failed)}"
+            )
         if skipped_ext:
             _log(f"Skipped (unknown ext): {', '.join(skipped_ext)}")
+            self._append_log(
+                f"[WARN]  Skipped (unsupported extension): "
+                f"{', '.join(skipped_ext)}"
+            )
 
     # ── outputs tab ──────────────────────────────────────────────
 
@@ -716,6 +815,15 @@ class WorkerRunDialog(QDialog):
             and not self._outputs_loaded
         ):
             self._detail_tabs.setTabEnabled(2, True)
+            # When a full-log fetch is (or will be) in flight, defer the
+            # notice so it stays at the bottom; otherwise append now.
+            expects_log = bool(self._client and self._session.job_id)
+            if expects_log:
+                self._outputs_notice_pending = True
+            else:
+                self._append_log(
+                    'Please see the "Outputs" tab to view the outputs.'
+                )
             self._load_outputs()
 
     def _load_outputs(self):

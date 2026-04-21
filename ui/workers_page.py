@@ -7,6 +7,8 @@ from qgis.PyQt.QtWidgets import (
     QVBoxLayout,
     QHBoxLayout,
     QLabel,
+    QCheckBox,
+    QComboBox,
     QPushButton,
     QScrollArea,
     QFrame,
@@ -278,16 +280,124 @@ class WorkersPage(QWidget):
         self._workers_scroll.setWidget(empty)
         self._content_stack.addWidget(self._workers_scroll)
 
-        # index 1: submitted scroll
+        # index 1: submitted tab (filter bar + scroll)
+        submitted_tab = QWidget()
+        st_lay = QVBoxLayout(submitted_tab)
+        st_lay.setContentsMargins(0, 0, 0, 0)
+        st_lay.setSpacing(6)
+        self._build_session_filters(st_lay)
+
         self._submitted_scroll = QScrollArea()
         self._submitted_scroll.setWidgetResizable(True)
         self._submitted_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self._content_stack.addWidget(self._submitted_scroll)
+        st_lay.addWidget(self._submitted_scroll, 1)
+
+        self._content_stack.addWidget(submitted_tab)
         self._rebuild_submitted_list()
 
         root.addWidget(self._content_stack)
 
     # ── tabs ──────────────────────────────────────────────────────
+
+    # ── session filters ──────────────────────────────────────────
+
+    _STATUS_CHOICES = [
+        "PREPARING", "SUBMITTED", "RUNNING", "SUCCESS",
+        "CANCELLED", "EXPIRED", "JOB_FAILED",
+        "UPLOAD_FAILED", "SUBMIT_FAILED",
+    ]
+    _DATE_CHOICES = [
+        ("All time", 0),
+        ("Last 24 hours", 1),
+        ("Last 7 days", 7),
+        ("Last 30 days", 30),
+    ]
+    _SORT_CHOICES = [
+        ("Newest first", "newest"),
+        ("Oldest first", "oldest"),
+        ("Status", "status"),
+    ]
+
+    def _build_session_filters(self, parent_lay: QVBoxLayout):
+        row1 = QHBoxLayout()
+        row1.setSpacing(6)
+
+        self._status_filter = QComboBox()
+        self._status_filter.setObjectName("npRunCombo")
+        self._status_filter.addItem("All statuses", "")
+        for s in self._STATUS_CHOICES:
+            self._status_filter.addItem(s, s)
+        row1.addWidget(self._status_filter, 1)
+
+        self._date_filter = QComboBox()
+        self._date_filter.setObjectName("npRunCombo")
+        for label, days in self._DATE_CHOICES:
+            self._date_filter.addItem(label, days)
+        row1.addWidget(self._date_filter, 1)
+
+        self._sort_filter = QComboBox()
+        self._sort_filter.setObjectName("npRunCombo")
+        for label, mode in self._SORT_CHOICES:
+            self._sort_filter.addItem(label, mode)
+        row1.addWidget(self._sort_filter, 1)
+
+        parent_lay.addLayout(row1)
+
+        row2 = QHBoxLayout()
+        row2.setSpacing(6)
+
+        self._tenant_filter = QComboBox()
+        self._tenant_filter.setObjectName("npRunCombo")
+        self._tenant_filter.addItem("All teams", "")
+        row2.addWidget(self._tenant_filter, 1)
+
+        self._all_teams_cb = QCheckBox("Include teammates' jobs")
+        self._all_teams_cb.setToolTip(
+            "When checked, include jobs created by other members of "
+            "accessible tenants (allTeams=true)."
+        )
+        row2.addWidget(self._all_teams_cb)
+
+        row2.addStretch()
+        parent_lay.addLayout(row2)
+
+        # allTeams is a scope change — it widens the set of jobs the server
+        # returns, so it needs a re-fetch. Everything else is a local
+        # predicate on the jobs we already have.
+        self._all_teams_cb.toggled.connect(self._on_scope_changed)
+        self._status_filter.currentIndexChanged.connect(
+            self._rebuild_submitted_list
+        )
+        self._date_filter.currentIndexChanged.connect(
+            self._rebuild_submitted_list
+        )
+        self._tenant_filter.currentIndexChanged.connect(
+            self._rebuild_submitted_list
+        )
+        self._sort_filter.currentIndexChanged.connect(
+            self._rebuild_submitted_list
+        )
+
+    def _on_scope_changed(self, *_):
+        self.load_job_history()
+
+    def set_tenants(self, tenants_data: list[dict]):
+        """Populate the tenant filter dropdown from the catalog fetch."""
+        current = self._tenant_filter.currentData()
+        self._tenant_filter.blockSignals(True)
+        self._tenant_filter.clear()
+        self._tenant_filter.addItem("All teams", "")
+        for tenant in tenants_data:
+            tid = tenant.get("id") or tenant.get("tenantId")
+            if not tid:
+                continue
+            self._tenant_filter.addItem(tenant.get("name", "Team"), tid)
+        # Restore prior selection if still present.
+        if current:
+            idx = self._tenant_filter.findData(current)
+            if idx >= 0:
+                self._tenant_filter.setCurrentIndex(idx)
+        self._tenant_filter.blockSignals(False)
 
     def _switch_tab(self, index: int):
         self._content_stack.setCurrentIndex(index)
@@ -313,11 +423,19 @@ class WorkersPage(QWidget):
         """Fetch all jobs from GET /api/workers/jobs in a background thread."""
         if not self._client:
             return
-        threading.Thread(target=self._fetch_history, daemon=True).start()
+        self._refresh_btn.start_spin()
+        params = self._collect_filter_params()
+        threading.Thread(
+            target=self._fetch_history, args=(params,), daemon=True,
+        ).start()
 
-    def _fetch_history(self):
+    def _collect_filter_params(self) -> dict:
+        # Only allTeams is server-side — the rest filter locally.
+        return {"all_teams": self._all_teams_cb.isChecked()}
+
+    def _fetch_history(self, params: dict):
         try:
-            jobs = self._client.list_jobs()
+            jobs = self._client.list_jobs(**params)
             # Send raw dicts to main thread (WorkerJob dataclasses aren't
             # needed — from_history works with dicts).
             self._history_loaded.emit([
@@ -459,19 +577,21 @@ class WorkersPage(QWidget):
         self._sessions.insert(0, session)
         self._rebuild_submitted_list()
 
-    def _rebuild_submitted_list(self):
+    def _rebuild_submitted_list(self, *_):
         content = QWidget()
         lay = QVBoxLayout(content)
         lay.setContentsMargins(0, 4, 0, 0)
         lay.setSpacing(8)
 
-        if not self._sessions:
+        sessions = self._sorted_sessions()
+
+        if not sessions:
             empty = QLabel("No submitted sessions yet.")
             empty.setObjectName("npEmptyLabel")
             empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
             lay.addWidget(empty)
         else:
-            for session in self._sessions:
+            for session in sessions:
                 card = _SubmittedJobCard(session, content)
                 card.clicked.connect(
                     lambda s=session: self._open_session_dialog(s)
@@ -480,6 +600,37 @@ class WorkersPage(QWidget):
 
         lay.addStretch(1)
         self._submitted_scroll.setWidget(content)
+
+    def _sorted_sessions(self) -> list[JobSession]:
+        from datetime import datetime, timedelta
+        sessions = list(self._sessions)
+
+        if hasattr(self, "_status_filter"):
+            status = self._status_filter.currentData()
+            if status:
+                sessions = [s for s in sessions if s.status == status]
+
+            tenant_id = self._tenant_filter.currentData()
+            if tenant_id:
+                sessions = [s for s in sessions if s.tenant_id == tenant_id]
+
+            days = self._date_filter.currentData()
+            if isinstance(days, int) and days > 0:
+                cutoff = datetime.now() - timedelta(days=days)
+                sessions = [s for s in sessions if s.created_at >= cutoff]
+
+        mode = self._sort_filter.currentData() if hasattr(
+            self, "_sort_filter"
+        ) else "newest"
+        if mode == "oldest":
+            sessions.sort(key=lambda s: s.created_at)
+        elif mode == "status":
+            sessions.sort(
+                key=lambda s: (s.status, -s.created_at.timestamp())
+            )
+        else:
+            sessions.sort(key=lambda s: s.created_at, reverse=True)
+        return sessions
 
 
 # ── helpers ────────────────────────────────────────────────────────
