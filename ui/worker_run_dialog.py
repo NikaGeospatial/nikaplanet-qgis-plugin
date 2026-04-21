@@ -26,11 +26,35 @@ from qgis.PyQt.QtWidgets import (
     QWidget,
 )
 from qgis.PyQt.QtCore import Qt, QTimer, QUrl, pyqtSignal
-from qgis.core import Qgis, QgsMessageLog
+from qgis.core import (
+    Qgis,
+    QgsMessageLog,
+    QgsProject,
+    QgsRasterLayer,
+    QgsVectorLayer,
+    QgsVectorTileLayer,
+)
 from qgis.gui import QgsMapLayerComboBox
 
 from ..util.messages import PLUGIN_LOG_TAG
 from .job_session import TERMINAL_STATUSES, JobSession
+
+
+_POST_RUN_NOTHING = "nothing"
+_POST_RUN_DOWNLOAD = "download"
+_POST_RUN_DOWNLOAD_AND_ADD = "download_and_add"
+
+_RASTER_EXTS = frozenset({
+    ".tif", ".tiff", ".geotif", ".geotiff",
+    ".jp2", ".img", ".asc", ".vrt", ".nc",
+    ".hdf", ".hdf5", ".grd",
+})
+_VECTOR_EXTS = frozenset({
+    ".shp", ".geojson", ".json", ".gpkg",
+    ".kml", ".kmz", ".gml", ".gpx", ".fgb",
+})
+# Vector tile archives (loaded via QgsVectorTileLayer, not OGR).
+_VECTOR_TILE_EXTS = frozenset({".pmtiles"})
 
 
 def _strip_qgis_source_uri_suffix(source: str) -> str:
@@ -118,6 +142,9 @@ class WorkerRunDialog(QDialog):
     """Dialog for configuring a worker run and viewing live logs."""
 
     job_submitted = pyqtSignal(object)  # emits JobSession
+    # Cross-thread dispatch signals for the post-run download worker.
+    _post_run_log_requested = pyqtSignal(str)
+    _post_run_add_layers_requested = pyqtSignal(list)
 
     def __init__(
         self,
@@ -133,6 +160,12 @@ class WorkerRunDialog(QDialog):
         self._session = None
         self._input_widgets: list[dict] = []
         self._outputs_loaded = False
+        self._post_run_behavior = _POST_RUN_NOTHING
+        self._post_run_dest: str | None = None
+        self._post_run_done = False
+
+        self._post_run_log_requested.connect(self._append_log)
+        self._post_run_add_layers_requested.connect(self._add_outputs_as_layers)
 
         name = worker.get("name", "Unknown Worker")
         version = worker.get("version", "?")
@@ -216,6 +249,18 @@ class WorkerRunDialog(QDialog):
         for inp in inputs_def:
             widget = self._build_input_widget(inp, form)
             self._input_widgets.append({"def": inp, "widget": widget})
+
+        self._post_run_combo = QComboBox()
+        self._post_run_combo.setObjectName("npRunCombo")
+        self._post_run_combo.addItem("Nothing", _POST_RUN_NOTHING)
+        self._post_run_combo.addItem("Download all files", _POST_RUN_DOWNLOAD)
+        self._post_run_combo.addItem(
+            "Download all files and add outputs as layers",
+            _POST_RUN_DOWNLOAD_AND_ADD,
+        )
+        form.addRow(
+            self._make_form_label("Behavior after run"), self._post_run_combo,
+        )
 
         inner_lay.addLayout(form)
         inner_lay.addStretch()
@@ -425,6 +470,7 @@ class WorkerRunDialog(QDialog):
             self._cancel_btn.hide()
             self._dur_timer.stop()
         self._maybe_enable_outputs()
+        self._maybe_run_post_behavior()
 
     def _tick_duration(self):
         if self._session:
@@ -464,6 +510,189 @@ class WorkerRunDialog(QDialog):
                 Qt.TextInteractionFlag.TextSelectableByMouse
             )
             self._inputs_form.addRow(self._make_form_label(label_text), val_lbl)
+
+    # ── post-run behavior ────────────────────────────────────────
+
+    def _maybe_run_post_behavior(self):
+        if self._post_run_done:
+            return
+        if self._post_run_behavior == _POST_RUN_NOTHING:
+            return
+        if not self._session or self._session.status != "SUCCESS":
+            return
+        if not self._session.has_output_files:
+            return
+        if not self._post_run_dest or not self._client or not self._session.job_id:
+            return
+
+        self._post_run_done = True
+        job_id = self._session.job_id
+        dest = self._post_run_dest
+        behavior = self._post_run_behavior
+        zip_path = os.path.join(dest, "outputs.zip")
+
+        QgsMessageLog.logMessage(
+            f"[post-run] Starting. behavior={behavior!r}, job_id={job_id}, "
+            f"dest={dest}",
+            PLUGIN_LOG_TAG, Qgis.Info,
+        )
+        self._append_log(f"[post-run] Downloading outputs to {dest}\u2026")
+
+        def _do_download():
+            import zipfile
+            import traceback
+            try:
+                self._client.download_output_folder(job_id, "/", zip_path)
+                QgsMessageLog.logMessage(
+                    f"[post-run] Zip downloaded to {zip_path}",
+                    PLUGIN_LOG_TAG, Qgis.Info,
+                )
+                extracted: list[str] = []
+                with zipfile.ZipFile(zip_path) as zf:
+                    for name in zf.namelist():
+                        if name.endswith("/"):
+                            continue
+                        out_path = zf.extract(name, dest)
+                        extracted.append(out_path)
+                try:
+                    os.remove(zip_path)
+                except OSError:
+                    pass
+                QgsMessageLog.logMessage(
+                    f"[post-run] Extracted {len(extracted)} file(s). "
+                    f"behavior={behavior!r}, "
+                    f"will_add={behavior == _POST_RUN_DOWNLOAD_AND_ADD}",
+                    PLUGIN_LOG_TAG, Qgis.Info,
+                )
+                self._post_run_log_requested.emit(
+                    f"[post-run] Downloaded {len(extracted)} file(s) to {dest}"
+                )
+                if behavior == _POST_RUN_DOWNLOAD_AND_ADD:
+                    QgsMessageLog.logMessage(
+                        "[post-run] Emitting add-as-layers signal",
+                        PLUGIN_LOG_TAG, Qgis.Info,
+                    )
+                    self._post_run_add_layers_requested.emit(extracted)
+            except Exception as exc:
+                QgsMessageLog.logMessage(
+                    f"[post-run] Download thread crashed: {exc}\n"
+                    f"{traceback.format_exc()}",
+                    PLUGIN_LOG_TAG, Qgis.Warning,
+                )
+                self._post_run_log_requested.emit(
+                    f"[post-run] Download failed: {exc}"
+                )
+
+        threading.Thread(target=_do_download, daemon=True).start()
+
+    def _add_outputs_as_layers(self, paths: list[str]):
+        def _log(msg: str, level=Qgis.Info):
+            QgsMessageLog.logMessage(f"[post-run] {msg}", PLUGIN_LOG_TAG, level)
+
+        try:
+            self._add_outputs_as_layers_inner(paths, _log)
+        except Exception as exc:
+            import traceback
+            _log(
+                f"add-as-layers crashed: {exc}\n{traceback.format_exc()}",
+                Qgis.Warning,
+            )
+
+    def _add_outputs_as_layers_inner(self, paths: list[str], _log):
+        _log(f"Attempting to add {len(paths)} file(s) as layers")
+        project = QgsProject.instance()
+        used_names: set[str] = {
+            lyr.name() for lyr in project.mapLayers().values()
+        }
+
+        def _unique_name(base: str) -> str:
+            if base not in used_names:
+                used_names.add(base)
+                return base
+            n = 2
+            while f"{base} ({n})" in used_names:
+                n += 1
+            final = f"{base} ({n})"
+            used_names.add(final)
+            return final
+
+        added = 0
+        skipped_ext: list[str] = []
+        failed: list[str] = []
+
+        for p in paths:
+            ext = os.path.splitext(p)[1].lower()
+            name = os.path.basename(p)
+            exists = os.path.isfile(p)
+            size = os.path.getsize(p) if exists else -1
+            _log(
+                f"-> {name} (ext={ext or '<none>'}, "
+                f"exists={exists}, size={size}, path={p})"
+            )
+
+            if not exists:
+                _log("   skipped: file does not exist on disk", Qgis.Warning)
+                failed.append(name)
+                continue
+
+            layer_name = _unique_name(name)
+            if layer_name != name:
+                _log(f"   renaming to {layer_name!r} to avoid conflict")
+
+            if ext in _RASTER_EXTS:
+                category = "raster"
+                layer = QgsRasterLayer(p, layer_name)
+            elif ext in _VECTOR_EXTS:
+                category = "vector"
+                layer = QgsVectorLayer(p, layer_name, "ogr")
+            elif ext in _VECTOR_TILE_EXTS:
+                category = "vector-tile"
+                file_url = QUrl.fromLocalFile(p).toString()
+                uri = f"type=xyz&url={file_url}"
+                _log(f"   vector-tile URI: {uri}")
+                layer = QgsVectorTileLayer(uri, layer_name)
+            else:
+                _log(
+                    f"   skipped: extension {ext or '<none>'} "
+                    f"not in raster/vector/vector-tile whitelist",
+                    Qgis.Warning,
+                )
+                skipped_ext.append(name)
+                # We reserved layer_name in used_names but don't need it.
+                used_names.discard(layer_name)
+                continue
+
+            _log(f"   trying as {category} layer")
+            if layer.isValid():
+                project.addMapLayer(layer)
+                try:
+                    provider = layer.dataProvider()
+                    provider_name = (
+                        provider.name() if provider is not None else "<none>"
+                    )
+                except Exception:
+                    provider_name = "<unavailable>"
+                _log(
+                    f"   OK: added as {category} layer "
+                    f"(provider={provider_name})"
+                )
+                added += 1
+            else:
+                err = layer.error()
+                err_summary = err.summary() if err else "<no error info>"
+                _log(f"   INVALID: {err_summary}", Qgis.Warning)
+                failed.append(name)
+
+        _log(
+            f"Done: added={added}, failed={len(failed)}, "
+            f"skipped_ext={len(skipped_ext)}"
+        )
+        if failed:
+            _log(
+                f"Failed files: {', '.join(failed)}", Qgis.Warning
+            )
+        if skipped_ext:
+            _log(f"Skipped (unknown ext): {', '.join(skipped_ext)}")
 
     # ── outputs tab ──────────────────────────────────────────────
 
@@ -846,6 +1075,18 @@ class WorkerRunDialog(QDialog):
 
         if missing_sidecars and not self._confirm_missing_sidecars(missing_sidecars):
             return
+
+        behavior = self._post_run_combo.currentData()
+        if behavior != _POST_RUN_NOTHING:
+            dest = QFileDialog.getExistingDirectory(
+                self, "Select folder for post-run downloads",
+            )
+            if not dest:
+                # User cancelled the folder picker — disable post-run action.
+                behavior = _POST_RUN_NOTHING
+            else:
+                self._post_run_dest = dest
+        self._post_run_behavior = behavior
 
         session = JobSession(
             worker_name=self._worker.get("name", "unknown"),
