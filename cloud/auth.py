@@ -98,22 +98,6 @@ def _get_keyring():
 _keyring = _get_keyring()
 
 
-def _safe_token_fingerprint(token) -> str:
-    """Render a keyring value as a non-sensitive descriptor for logs.
-
-    Returns length plus 4-char prefix/suffix — enough to diagnose truncation,
-    BOM/whitespace contamination, and the wrong-store case without revealing
-    the credential.
-    """
-    if not token:
-        return "<none>"
-    t = str(token)
-    n = len(t)
-    if n < 12:
-        return f"<len={n}>"
-    return f"<len={n} prefix={t[:4]!r} suffix={t[-4:]!r}>"
-
-
 def debug_log_keyring_backends():
     """Print and log all discoverable keyring backends (for diagnosing 'No recommended backend')."""
     try:
@@ -182,24 +166,11 @@ class _KeyringStore:
         self._kr = kr
 
     def get(self, key):
-        backend_cls = type(self._kr.get_keyring())
-        backend_name = f"{backend_cls.__module__}.{backend_cls.__qualname__}"
         for service, user in _credential_targets(key):
             try:
                 value = self._kr.get_password(service, user)
-            except Exception as exc:
-                QgsMessageLog.logMessage(
-                    f"[auth] keyring.get_password(service={service!r}, "
-                    f"user={user!r}) raised: {exc!r}",
-                    LOG_TAG, Qgis.Warning,
-                )
+            except Exception:
                 continue
-            QgsMessageLog.logMessage(
-                f"[auth] keyring.get service={service!r} user={user!r} "
-                f"platform={sys.platform} backend={backend_name} "
-                f"result={_safe_token_fingerprint(value)}",
-                LOG_TAG, Qgis.Info,
-            )
             if value is not None:
                 return value
         return None
@@ -445,109 +416,62 @@ class AuthManager(QObject):
         Returns the user info dict if a valid session was restored, or None.
         """
         QgsMessageLog.logMessage(
-            f"[auth] try_restore_session start (store="
-            f"{type(_store).__qualname__}, platform={sys.platform})",
-            LOG_TAG, Qgis.Info,
+            "Checking keyring for existing session\u2026", LOG_TAG, Qgis.Info,
         )
 
         id_token = self.get_id_token()
-        refresh_token = self.get_refresh_token()
-        QgsMessageLog.logMessage(
-            f"[auth] stored id_token={_safe_token_fingerprint(id_token)} "
-            f"refresh_token={_safe_token_fingerprint(refresh_token)}",
-            LOG_TAG, Qgis.Info,
-        )
-
         if not id_token:
             QgsMessageLog.logMessage(
-                "[auth] No stored ID token — no session to restore",
-                LOG_TAG, Qgis.Info,
+                "No stored ID token found — no session to restore", LOG_TAG, Qgis.Info,
             )
             return None
 
-        try:
-            expired = self._is_token_expired(id_token)
-        except Exception as exc:
+        if self._is_token_expired(id_token):
             QgsMessageLog.logMessage(
-                f"[auth] _is_token_expired raised {exc!r} "
-                f"(token fingerprint={_safe_token_fingerprint(id_token)}) — "
-                "treating as expired",
-                LOG_TAG, Qgis.Warning,
-            )
-            expired = True
-
-        if expired:
-            QgsMessageLog.logMessage(
-                "[auth] Stored ID token is expired, attempting refresh\u2026",
-                LOG_TAG, Qgis.Info,
+                "Stored ID token is expired, attempting refresh\u2026", LOG_TAG, Qgis.Info,
             )
             id_token = self._refresh_id_token()
             if not id_token:
                 QgsMessageLog.logMessage(
-                    "[auth] Token refresh failed — session not restored",
-                    LOG_TAG, Qgis.Warning,
+                    "Token refresh failed — session not restored", LOG_TAG, Qgis.Warning,
                 )
                 return None
             QgsMessageLog.logMessage(
-                f"[auth] Token refreshed successfully "
-                f"(new={_safe_token_fingerprint(id_token)})",
-                LOG_TAG, Qgis.Info,
+                "Token refreshed successfully", LOG_TAG, Qgis.Info,
             )
         else:
             QgsMessageLog.logMessage(
-                "[auth] Stored ID token is still valid", LOG_TAG, Qgis.Info,
+                "Stored ID token is still valid", LOG_TAG, Qgis.Info,
             )
 
         user = None
         raw = QgsSettings().value(_QS_USER_INFO, None)
-        QgsMessageLog.logMessage(
-            f"[auth] QgsSettings user_info present={bool(raw)} "
-            f"length={len(raw) if isinstance(raw, str) else 'N/A'}",
-            LOG_TAG, Qgis.Info,
-        )
         if raw:
             try:
                 user = json.loads(raw)
                 if not isinstance(user, dict) or not user.get("username"):
-                    QgsMessageLog.logMessage(
-                        f"[auth] cached user_info shape invalid "
-                        f"(type={type(user).__name__}, "
-                        f"keys={list(user.keys()) if isinstance(user, dict) else 'n/a'})",
-                        LOG_TAG, Qgis.Warning,
-                    )
                     user = None
-            except (json.JSONDecodeError, ValueError) as exc:
-                QgsMessageLog.logMessage(
-                    f"[auth] cached user_info JSON parse failed: {exc!r}",
-                    LOG_TAG, Qgis.Warning,
-                )
+            except (json.JSONDecodeError, ValueError):
                 user = None
 
         # Tokens may have been written by the GeoEngine CLI, which doesn't
         # populate QgsSettings.  Fall back to the server ping endpoint.
         if user is None:
             QgsMessageLog.logMessage(
-                "[auth] No usable cached user info — fetching from server\u2026",
-                LOG_TAG, Qgis.Info,
+                "No stored user info — fetching from server\u2026", LOG_TAG, Qgis.Info,
             )
             user = self._fetch_user_info(id_token)
             if user:
-                QgsMessageLog.logMessage(
-                    f"[auth] ping returned user (keys={list(user.keys())})",
-                    LOG_TAG, Qgis.Info,
-                )
                 QgsSettings().setValue(_QS_USER_INFO, json.dumps(user))
 
         if not user:
             QgsMessageLog.logMessage(
-                "[auth] Could not obtain user info — session not restored",
-                LOG_TAG, Qgis.Warning,
+                "Could not obtain user info — session not restored", LOG_TAG, Qgis.Warning,
             )
             return None
 
         QgsMessageLog.logMessage(
-            f"[auth] Session restored for {user['username']}",
-            LOG_TAG, Qgis.Info,
+            f"Session restored for {user['username']}", LOG_TAG, Qgis.Info,
         )
         return user
 
@@ -563,54 +487,17 @@ class AuthManager(QObject):
     def _fetch_user_info(id_token):
         """GET /api/auth/desktop/ping with the id_token and return the user dict."""
         url = f"{_base_url()}/api/auth/desktop/ping"
-        QgsMessageLog.logMessage(
-            f"[auth] ping GET {url} with "
-            f"token={_safe_token_fingerprint(id_token)}",
-            LOG_TAG, Qgis.Info,
-        )
         req = Request(url, method="GET")
         req.add_header("Authorization", f"Bearer {id_token}")
         try:
             with urlopen(req, timeout=15) as resp:
-                status = getattr(resp, "status", None)
-                body_bytes = resp.read()
-                QgsMessageLog.logMessage(
-                    f"[auth] ping response status={status} "
-                    f"body_len={len(body_bytes)}",
-                    LOG_TAG, Qgis.Info,
-                )
-                try:
-                    data = json.loads(body_bytes)
-                except (json.JSONDecodeError, ValueError) as exc:
-                    QgsMessageLog.logMessage(
-                        f"[auth] ping response JSON parse failed: {exc!r} "
-                        f"(first 120 bytes: "
-                        f"{body_bytes[:120]!r})",
-                        LOG_TAG, Qgis.Warning,
-                    )
-                    return None
-                top_keys = (
-                    list(data.keys()) if isinstance(data, dict) else "<not-dict>"
-                )
-                user = data.get("data") if isinstance(data, dict) else None
-                inner_keys = (
-                    list(user.keys()) if isinstance(user, dict) else "<not-dict>"
-                )
-                QgsMessageLog.logMessage(
-                    f"[auth] ping payload top_keys={top_keys} "
-                    f"data_keys={inner_keys}",
-                    LOG_TAG, Qgis.Info,
-                )
+                data = json.loads(resp.read())
+                user = data.get("data")
                 if isinstance(user, dict) and user.get("username"):
                     return user
-                QgsMessageLog.logMessage(
-                    f"[auth] ping payload did not contain data.username",
-                    LOG_TAG, Qgis.Warning,
-                )
         except Exception as exc:
             QgsMessageLog.logMessage(
-                f"[auth] ping request failed: {type(exc).__name__}: {exc!r}",
-                LOG_TAG, Qgis.Warning,
+                f"Failed to fetch user info from server: {exc}", LOG_TAG, Qgis.Warning,
             )
         return None
 

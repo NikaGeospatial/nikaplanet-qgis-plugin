@@ -1054,15 +1054,21 @@ class WorkerRunDialog(QDialog):
         menu = QMenu(self)
         menu.setObjectName("npOutputsMenu")
 
-        # Single file download
+        # Single/multi file download
         dl_action = None
+        dl_add_action = None
         if len(file_items) == 1:
             dl_action = menu.addAction("Download")
+            dl_add_action = menu.addAction("Download and add as layer")
         elif len(file_items) > 1:
             dl_action = menu.addAction(f"Download {len(file_items)} files")
+            dl_add_action = menu.addAction(
+                f"Download and add {len(file_items)} files as layers"
+            )
 
         # Shapefile: download all associated files
         dl_shp_action = None
+        dl_shp_add_action = None
         shp_siblings: list[QTreeWidgetItem] = []
         if len(file_items) == 1:
             shp_siblings = self._find_shapefile_siblings(file_items[0])
@@ -1078,19 +1084,34 @@ class WorkerRunDialog(QDialog):
                 dl_shp_action = menu.addAction(
                     f"Download shapefile \"{stem}\" ({exts})"
                 )
+                dl_shp_add_action = menu.addAction(
+                    f"Download shapefile \"{stem}\" and add as layer"
+                )
 
-        # Folder download (as zip)
+        # Folder download (as zip) + "and add"
         dl_folder_action = None
+        dl_folder_add_action = None
         if len(folder_items) == 1:
             name = folder_items[0].text(0)
-            dl_folder_action = menu.addAction(f"Download folder \"{name}\" as zip")
+            dl_folder_action = menu.addAction(
+                f"Download folder \"{name}\" as zip"
+            )
+            dl_folder_add_action = menu.addAction(
+                f"Download folder \"{name}\" and add contents as layers"
+            )
         elif len(folder_items) > 1:
             dl_folder_action = menu.addAction(
                 f"Download {len(folder_items)} folders as zip"
             )
+            dl_folder_add_action = menu.addAction(
+                f"Download {len(folder_items)} folders and add contents as layers"
+            )
 
-        # Download all outputs as zip
+        # Download all outputs as zip (+ and add)
         dl_all_action = menu.addAction("Download all outputs as zip")
+        dl_all_add_action = menu.addAction(
+            "Download all outputs and add as layers"
+        )
 
         if not menu.actions():
             return
@@ -1098,20 +1119,70 @@ class WorkerRunDialog(QDialog):
         action = menu.exec(self._outputs_tree.viewport().mapToGlobal(pos))
         if action == dl_action and file_items:
             self._download_items(file_items)
+        elif action == dl_add_action and file_items:
+            self._download_items(file_items, add_after=True)
         elif action == dl_shp_action and shp_siblings:
             self._download_items(shp_siblings)
+        elif action == dl_shp_add_action and shp_siblings:
+            self._download_items(shp_siblings, add_after=True)
         elif action == dl_folder_action and folder_items:
             self._download_folders(folder_items)
+        elif action == dl_folder_add_action and folder_items:
+            folder_paths = [
+                it.data(0, Qt.ItemDataRole.UserRole)["path"]
+                for it in folder_items
+            ]
+            self._download_folders_and_add(folder_paths)
         elif action == dl_all_action:
             self._download_folder_path("/")
+        elif action == dl_all_add_action:
+            self._download_folders_and_add(["/"])
 
-    def _download_items(self, items: list[QTreeWidgetItem]):
-        if len(items) == 1:
+    def _download_items(self, items: list[QTreeWidgetItem], add_after: bool = False):
+        if len(items) == 1 and not add_after:
             data = items[0].data(0, Qt.ItemDataRole.UserRole)
             self._download_output(data["path"], data["name"])
             return
 
-        dest_dir = QFileDialog.getExistingDirectory(self, "Save Output Files To")
+        if len(items) == 1:
+            # Single file + add-as-layer: prompt for save path like the
+            # regular single-file flow, then emit the add-layers request.
+            data = items[0].data(0, Qt.ItemDataRole.UserRole)
+            local_path, _ = QFileDialog.getSaveFileName(
+                self, "Save Output File (will add as layer)", data["name"],
+            )
+            if not local_path:
+                return
+            if not self._client or not self._session or not self._session.job_id:
+                return
+            job_id = self._session.job_id
+            rel_path = data["path"]
+            name = data["name"]
+
+            def _do_single():
+                from ..cloud.client import download_file
+                try:
+                    signed_url = self._client.get_output_download_url(
+                        job_id, rel_path,
+                    )
+                    download_file(signed_url, local_path)
+                    QTimer.singleShot(0, lambda: self._append_log(
+                        f"Downloaded: {name} -> {local_path}"
+                    ))
+                    self._post_run_add_layers_requested.emit([local_path])
+                except Exception as exc:
+                    QTimer.singleShot(0, lambda: self._append_log(
+                        f"Download failed: {exc}"
+                    ))
+
+            threading.Thread(target=_do_single, daemon=True).start()
+            return
+
+        prompt = (
+            "Save Output Files To (will add as layers)"
+            if add_after else "Save Output Files To"
+        )
+        dest_dir = QFileDialog.getExistingDirectory(self, prompt)
         if not dest_dir:
             return
         if not self._client or not self._session or not self._session.job_id:
@@ -1127,10 +1198,12 @@ class WorkerRunDialog(QDialog):
 
         def _do_batch():
             from ..cloud.client import download_file
+            saved: list[str] = []
             for rel_path, local_path, name in entries:
                 try:
                     signed_url = self._client.get_output_download_url(job_id, rel_path)
                     download_file(signed_url, local_path)
+                    saved.append(local_path)
                     QTimer.singleShot(0, lambda n=name, lp=local_path: self._append_log(
                         f"Downloaded: {n} -> {lp}"
                     ))
@@ -1138,6 +1211,8 @@ class WorkerRunDialog(QDialog):
                     QTimer.singleShot(0, lambda n=name, e=exc: self._append_log(
                         f"Download failed ({n}): {e}"
                     ))
+            if add_after and saved:
+                self._post_run_add_layers_requested.emit(saved)
 
         threading.Thread(target=_do_batch, daemon=True).start()
 
@@ -1145,6 +1220,65 @@ class WorkerRunDialog(QDialog):
         for item in items:
             data = item.data(0, Qt.ItemDataRole.UserRole)
             self._download_folder_path(data["path"])
+
+    def _download_folders_and_add(self, folder_paths: list[str]):
+        """Download one or more server folders as zips, extract them into a
+        chosen directory, and add the extracted files as layers."""
+        if not folder_paths:
+            return
+        dest_dir = QFileDialog.getExistingDirectory(
+            self, "Extract Folders To (will add as layers)",
+        )
+        if not dest_dir:
+            return
+        if not self._client or not self._session or not self._session.job_id:
+            return
+
+        job_id = self._session.job_id
+
+        def _do_folders():
+            import zipfile
+            import tempfile
+            extracted_all: list[str] = []
+            for folder_path in folder_paths:
+                display = (
+                    folder_path.rstrip("/").rsplit("/", 1)[-1] or "outputs"
+                )
+                zip_path = None
+                try:
+                    with tempfile.NamedTemporaryFile(
+                        suffix=".zip", delete=False,
+                    ) as tmp:
+                        zip_path = tmp.name
+                    self._client.download_output_folder(
+                        job_id, folder_path, zip_path,
+                    )
+                    with zipfile.ZipFile(zip_path) as zf:
+                        for entry_name in zf.namelist():
+                            if entry_name.endswith("/"):
+                                continue
+                            out = zf.extract(entry_name, dest_dir)
+                            extracted_all.append(out)
+                    QTimer.singleShot(0, lambda n=display: self._append_log(
+                        f"Extracted folder \"{n}\" to {dest_dir}"
+                    ))
+                except Exception as exc:
+                    QTimer.singleShot(
+                        0,
+                        lambda n=display, e=exc: self._append_log(
+                            f"Folder download failed ({n}): {e}"
+                        ),
+                    )
+                finally:
+                    if zip_path:
+                        try:
+                            os.remove(zip_path)
+                        except OSError:
+                            pass
+            if extracted_all:
+                self._post_run_add_layers_requested.emit(extracted_all)
+
+        threading.Thread(target=_do_folders, daemon=True).start()
 
     def _download_folder_path(self, path: str):
         if path == "/":
