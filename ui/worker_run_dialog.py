@@ -261,6 +261,9 @@ class WorkerRunDialog(QDialog):
         form.addRow(
             self._make_form_label("Behavior after run"), self._post_run_combo,
         )
+        self._post_run_combo.currentIndexChanged.connect(
+            self._update_submit_button_text
+        )
 
         inner_lay.addLayout(form)
         inner_lay.addStretch()
@@ -269,18 +272,25 @@ class WorkerRunDialog(QDialog):
         lay.addWidget(scroll, 1)
 
         # Submit button stays pinned at the bottom, outside the scroll
-        submit = QPushButton("Submit Run")
-        submit.setObjectName("npSubmitRunBtn")
-        submit.setCursor(Qt.CursorShape.PointingHandCursor)
-        submit.setFixedHeight(40)
-        submit.clicked.connect(self._on_submit)
+        self._submit_btn = QPushButton("Submit Run")
+        self._submit_btn.setObjectName("npSubmitRunBtn")
+        self._submit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._submit_btn.setFixedHeight(40)
+        self._submit_btn.clicked.connect(self._on_submit)
         btn_wrap = QWidget()
         btn_lay = QVBoxLayout(btn_wrap)
         btn_lay.setContentsMargins(20, 8, 20, 20)
-        btn_lay.addWidget(submit)
+        btn_lay.addWidget(self._submit_btn)
         lay.addWidget(btn_wrap)
 
         return page
+
+    def _update_submit_button_text(self):
+        behavior = self._post_run_combo.currentData()
+        if behavior in (_POST_RUN_DOWNLOAD, _POST_RUN_DOWNLOAD_AND_ADD):
+            self._submit_btn.setText("Choose Download Location and Submit")
+        else:
+            self._submit_btn.setText("Submit Run")
 
     # ── log page ──────────────────────────────────────────────────
 
@@ -295,7 +305,7 @@ class WorkerRunDialog(QDialog):
 
         left = QVBoxLayout()
         left.setSpacing(2)
-        wid_lbl = QLabel("WORKER IDENTIFICATION")
+        wid_lbl = QLabel("WORKER ID")
         wid_lbl.setObjectName("npLogSectionLabel")
         left.addWidget(wid_lbl)
 
@@ -314,7 +324,7 @@ class WorkerRunDialog(QDialog):
 
         right = QVBoxLayout()
         right.setSpacing(2)
-        sid_title = QLabel("SESSION ID")
+        sid_title = QLabel("JOB ID")
         sid_title.setObjectName("npLogSectionLabel")
         sid_title.setAlignment(Qt.AlignmentFlag.AlignRight)
         right.addWidget(sid_title)

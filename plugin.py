@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import threading
+
 from qgis.PyQt.QtWidgets import QAction, QMessageBox
 from qgis.PyQt.QtCore import Qt, QTimer
 from qgis.core import QgsMessageLog, Qgis, QgsApplication
@@ -31,6 +33,9 @@ class NikaPlanetPlugin:
         self.login_panel.sign_in_clicked.connect(self._on_sign_in)
         self.login_panel.refresh_workers_clicked.connect(self._on_refresh_workers)
         self.login_panel.logout_clicked.connect(self._on_logout)
+        self.login_panel.workers_page.catalog_loaded.connect(
+            self._on_workers_fetched
+        )
 
         self.auth.login_succeeded.connect(
             self._on_login_success, Qt.ConnectionType.QueuedConnection
@@ -125,34 +130,53 @@ class NikaPlanetPlugin:
     # ── workers ────────────────────────────────────────────────────
 
     def _refresh_and_load_workers(self):
-        """Refresh processing algorithms, then populate the workers page."""
+        """Fetch workers off the main thread; finalize the UI on main thread."""
+        threading.Thread(target=self._do_fetch_workers, daemon=True).start()
+
+    def _do_fetch_workers(self):
+        """Run on a worker thread: fetch owned + invited tenant workers."""
+        workers_page = self.login_panel.workers_page
+        try:
+            user = self._user_info or {}
+            owned = user.get("ownedTenant") or {}
+            owned_id = owned.get("id")
+
+            owned_workers: list[dict] = []
+            if owned_id:
+                owned_workers = self.provider.fetch_remote_tasks(
+                    tenant_id=owned_id,
+                )
+
+            tenants_data: list[dict] = []
+            if owned_id:
+                tenants_data.append({
+                    "name": owned.get("name", "My Team"),
+                    "workers": list(owned_workers),
+                })
+            for inv in user.get("invitedTenants") or []:
+                tid = inv.get("id")
+                if not tid:
+                    continue
+                workers = self.provider.fetch_remote_tasks(tenant_id=tid)
+                tenants_data.append({
+                    "name": inv.get("name", "Team"),
+                    "workers": workers,
+                })
+
+            workers_page.catalog_loaded.emit(owned_workers, tenants_data)
+        except Exception as exc:
+            QgsMessageLog.logMessage(
+                f"Failed to refresh workers: {exc}",
+                PLUGIN_LOG_TAG, Qgis.Warning,
+            )
+            workers_page.catalog_fetch_failed.emit()
+
+    def _on_workers_fetched(
+        self, owned_workers: list, tenants_data: list,
+    ):
+        """Main thread: register algorithms and populate the workers page."""
+        self.provider._preloaded_tasks = list(owned_workers)
         self.provider.refreshAlgorithms()
-        self._populate_workers_page()
-
-    def _populate_workers_page(self):
-        """Build tenants-data from the provider's fetch results + invited tenants."""
-        user = self._user_info or {}
-        tenants_data: list[dict] = []
-
-        # Owned tenant: reuse the tasks the provider just fetched
-        owned = user.get("ownedTenant") or {}
-        if owned.get("id"):
-            tenants_data.append({
-                "name": owned.get("name", "My Team"),
-                "workers": list(self.provider.last_fetched_tasks),
-            })
-
-        # Invited tenants: fetch using the same (working) mechanism
-        for inv in user.get("invitedTenants") or []:
-            tid = inv.get("id")
-            if not tid:
-                continue
-            workers = self.provider.fetch_remote_tasks(tenant_id=tid)
-            tenants_data.append({
-                "name": inv.get("name", "Team"),
-                "workers": workers,
-            })
-
         self.login_panel.workers_page.set_workers_data(tenants_data)
         total = sum(len(t["workers"]) for t in tenants_data)
         QgsMessageLog.logMessage(

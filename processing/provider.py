@@ -23,6 +23,7 @@ class NikaPlanetProvider(QgsProcessingProvider):
         self._authenticated = False
         self._tenant_id: str | None = None
         self.last_fetched_tasks: list[dict] = []
+        self._preloaded_tasks: list[dict] | None = None
 
     def loadAlgorithms(self):
         QgsMessageLog.logMessage(
@@ -44,7 +45,11 @@ class NikaPlanetProvider(QgsProcessingProvider):
             )
             return
 
-        self.last_fetched_tasks = self.fetch_remote_tasks()
+        if self._preloaded_tasks is not None:
+            self.last_fetched_tasks = self._preloaded_tasks
+            self._preloaded_tasks = None
+        else:
+            self.last_fetched_tasks = self.fetch_remote_tasks()
         for task_def in self.last_fetched_tasks:
             try:
                 self.addAlgorithm(RemoteAlgorithm(task_def, self._auth))

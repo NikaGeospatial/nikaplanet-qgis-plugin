@@ -14,13 +14,61 @@ from qgis.PyQt.QtWidgets import (
     QSpacerItem,
     QStackedWidget,
 )
-from qgis.PyQt.QtCore import Qt, pyqtSignal
+from qgis.PyQt.QtCore import (
+    Qt,
+    QRectF,
+    QVariantAnimation,
+    pyqtSignal,
+)
+from qgis.PyQt.QtGui import QPainter
 
 from qgis.core import QgsMessageLog, Qgis
 
 from .job_session import JobSession, TERMINAL_STATUSES
 from .worker_run_dialog import WorkerRunDialog
 from ..util.messages import PLUGIN_LOG_TAG
+
+
+class _SpinningRefreshButton(QPushButton):
+    """Refresh button whose glyph rotates while a refresh is in flight."""
+
+    def __init__(self, parent=None):
+        super().__init__("", parent)
+        self._angle = 0.0
+        self._anim = QVariantAnimation(self)
+        self._anim.setStartValue(0.0)
+        self._anim.setEndValue(360.0)
+        self._anim.setDuration(900)
+        self._anim.setLoopCount(-1)
+        self._anim.valueChanged.connect(self._set_angle)
+
+    def _set_angle(self, value):
+        self._angle = float(value)
+        self.update()
+
+    def start_spin(self):
+        if self._anim.state() != QVariantAnimation.State.Running:
+            self._anim.start()
+
+    def stop_spin(self):
+        self._anim.stop()
+        self._angle = 0.0
+        self.update()
+
+    def paintEvent(self, a0):
+        super().paintEvent(a0)
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        p.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+        p.setPen(self.palette().buttonText().color())
+        p.setFont(self.font())
+        p.translate(self.width() / 2.0, self.height() / 2.0)
+        p.rotate(self._angle)
+        rect = QRectF(
+            -self.width() / 2.0, -self.height() / 2.0,
+            float(self.width()), float(self.height()),
+        )
+        p.drawText(rect, int(Qt.AlignmentFlag.AlignCenter), "\u21BB")
 
 
 class _WorkerCard(QWidget):
@@ -155,6 +203,12 @@ class WorkersPage(QWidget):
     refresh_clicked = pyqtSignal()
     back_clicked = pyqtSignal()
 
+    # Emitted by the plugin's background catalog fetch with
+    # (owned_workers, tenants_data).
+    catalog_loaded = pyqtSignal(list, list)
+    # Emitted by the plugin's background catalog fetch on failure.
+    catalog_fetch_failed = pyqtSignal()
+
     # Internal: background thread finished fetching history.
     _history_loaded = pyqtSignal(list)
 
@@ -164,6 +218,7 @@ class WorkersPage(QWidget):
         self._client = None
 
         self._history_loaded.connect(self._on_history_loaded)
+        self.catalog_fetch_failed.connect(self._stop_refresh_spin)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(16, 8, 16, 16)
@@ -200,13 +255,13 @@ class WorkersPage(QWidget):
 
         # Refresh button — refreshes workers catalog or sessions depending
         # on which tab is active.
-        refresh = QPushButton("\u21BB")
-        refresh.setObjectName("npRefreshBtn")
-        refresh.setToolTip("Refresh")
-        refresh.setCursor(Qt.CursorShape.PointingHandCursor)
-        refresh.setFixedSize(30, 30)
-        refresh.clicked.connect(self._on_refresh)
-        tab_row.addWidget(refresh)
+        self._refresh_btn = _SpinningRefreshButton()
+        self._refresh_btn.setObjectName("npRefreshBtn")
+        self._refresh_btn.setToolTip("Refresh")
+        self._refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._refresh_btn.setFixedSize(30, 30)
+        self._refresh_btn.clicked.connect(self._on_refresh)
+        tab_row.addWidget(self._refresh_btn)
 
         root.addLayout(tab_row)
 
@@ -240,10 +295,14 @@ class WorkersPage(QWidget):
         self._submitted_tab_btn.setChecked(index == 1)
 
     def _on_refresh(self):
+        self._refresh_btn.start_spin()
         if self._content_stack.currentIndex() == 0:
             self.refresh_clicked.emit()
         else:
             self.load_job_history()
+
+    def _stop_refresh_spin(self):
+        self._refresh_btn.stop_spin()
 
     # ── public API ────────────────────────────────────────────────
 
@@ -305,6 +364,7 @@ class WorkersPage(QWidget):
 
         self._sessions = active + historical
         self._rebuild_submitted_list()
+        self._stop_refresh_spin()
 
     def set_workers_data(self, tenants: list[dict]) -> None:
         """Populate the Catalog tab."""
@@ -345,6 +405,7 @@ class WorkersPage(QWidget):
 
         lay.addStretch(1)
         self._workers_scroll.setWidget(content)
+        self._stop_refresh_spin()
 
     # ── run dialog ────────────────────────────────────────────────
 
