@@ -148,44 +148,75 @@ def debug_log_keyring_backends():
 # Token storage abstraction
 # ---------------------------------------------------------------------------
 
+def _credential_targets(key: str) -> list[tuple[str, str]]:
+    """Return ``(service, user)`` pairs to try for ``key``, in priority order.
+
+    The first entry is the canonical format — used for writes, tried first on
+    reads. Subsequent entries are read-only fallbacks for legacy layouts.
+
+    The Rust ``keyring`` crate v3 with the ``windows-native`` feature encodes
+    the Windows Credential Manager target name as ``f"{user}.{service}"``,
+    while Python ``keyring.backends.Windows.WinVaultKeyring`` uses just the
+    service. We write in the Rust format on Windows so both apps see the
+    same credential; on reads we still try the legacy Python format in case
+    the plugin previously stored tokens there.
+    """
+    if sys.platform == "win32":
+        return [
+            (f"{_KEYRING_USERNAME}.{key}", _KEYRING_USERNAME),
+            (key, _KEYRING_USERNAME),  # legacy python-keyring format
+        ]
+    return [(key, _KEYRING_USERNAME)]
+
+
 class _KeyringStore:
     """Store tokens in the OS keyring, keyed by (service=entry_name, user=_KEYRING_USERNAME).
 
     Matches the Rust ``keyring::Entry::new(entry, username)`` convention used
-    by the GeoEngine CLI so both applications share the same credentials.
+    by the GeoEngine CLI so both applications share the same credentials. On
+    Windows the ``keyring`` crate v3 encodes the target name as
+    ``{user}.{service}``; we match that format via ``_credential_targets``.
     """
 
     def __init__(self, kr):
         self._kr = kr
 
     def get(self, key):
-        try:
-            value = self._kr.get_password(key, _KEYRING_USERNAME)
-        except Exception as exc:
+        backend_cls = type(self._kr.get_keyring())
+        backend_name = f"{backend_cls.__module__}.{backend_cls.__qualname__}"
+        for service, user in _credential_targets(key):
+            try:
+                value = self._kr.get_password(service, user)
+            except Exception as exc:
+                QgsMessageLog.logMessage(
+                    f"[auth] keyring.get_password(service={service!r}, "
+                    f"user={user!r}) raised: {exc!r}",
+                    LOG_TAG, Qgis.Warning,
+                )
+                continue
             QgsMessageLog.logMessage(
-                f"[auth] keyring.get_password(service={key!r}, "
-                f"user={_KEYRING_USERNAME!r}) raised: {exc!r}",
-                LOG_TAG, Qgis.Warning,
+                f"[auth] keyring.get service={service!r} user={user!r} "
+                f"platform={sys.platform} backend={backend_name} "
+                f"result={_safe_token_fingerprint(value)}",
+                LOG_TAG, Qgis.Info,
             )
-            return None
-        QgsMessageLog.logMessage(
-            f"[auth] keyring.get service={key!r} user={_KEYRING_USERNAME!r} "
-            f"platform={sys.platform} backend="
-            f"{type(self._kr.get_keyring()).__module__}."
-            f"{type(self._kr.get_keyring()).__qualname__} "
-            f"result={_safe_token_fingerprint(value)}",
-            LOG_TAG, Qgis.Info,
-        )
-        return value
+            if value is not None:
+                return value
+        return None
 
     def set(self, key, value):
-        self._kr.set_password(key, _KEYRING_USERNAME, value)
+        # Write to the canonical (first) target so the credential is visible
+        # to the Rust CLI on every platform.
+        service, user = _credential_targets(key)[0]
+        self._kr.set_password(service, user, value)
 
     def delete(self, key):
-        try:
-            self._kr.delete_password(key, _KEYRING_USERNAME)
-        except self._kr.errors.PasswordDeleteError:
-            pass
+        # Delete every known target to avoid leaving stale legacy entries.
+        for service, user in _credential_targets(key):
+            try:
+                self._kr.delete_password(service, user)
+            except self._kr.errors.PasswordDeleteError:
+                pass
 
 
 class _QgsSettingsStore:
