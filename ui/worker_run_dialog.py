@@ -312,20 +312,21 @@ class WorkerRunDialog(QDialog):
             widget = self._build_input_widget(inp, form)
             self._input_widgets.append({"def": inp, "widget": widget})
 
-        self._post_run_combo = QComboBox()
-        self._post_run_combo.setObjectName("npRunCombo")
-        self._post_run_combo.addItem("Nothing", _POST_RUN_NOTHING)
-        self._post_run_combo.addItem("Download all files", _POST_RUN_DOWNLOAD)
-        self._post_run_combo.addItem(
-            "Download all files and add outputs as layers",
-            _POST_RUN_DOWNLOAD_AND_ADD,
-        )
+        post_run_wrap = QWidget()
+        pr_lay = QVBoxLayout(post_run_wrap)
+        pr_lay.setContentsMargins(0, 0, 0, 0)
+        pr_lay.setSpacing(4)
+        self._download_cb = QCheckBox("Download outputs")
+        self._download_cb.setObjectName("npRunCheckbox")
+        self._add_layers_cb = QCheckBox("Add outputs as layers")
+        self._add_layers_cb.setObjectName("npRunCheckbox")
+        pr_lay.addWidget(self._download_cb)
+        pr_lay.addWidget(self._add_layers_cb)
         form.addRow(
-            self._make_form_label("Behavior after run"), self._post_run_combo,
+            self._make_form_label("Behavior after run"), post_run_wrap,
         )
-        self._post_run_combo.currentIndexChanged.connect(
-            self._update_submit_button_text
-        )
+        self._download_cb.toggled.connect(self._on_download_toggled)
+        self._add_layers_cb.toggled.connect(self._on_add_layers_toggled)
 
         inner_lay.addLayout(form)
         inner_lay.addStretch()
@@ -347,9 +348,28 @@ class WorkerRunDialog(QDialog):
 
         return page
 
+    def _on_download_toggled(self, checked: bool):
+        # Unchecking download also clears "add as layers" — you can't add
+        # layers without the files being on disk.
+        if not checked and self._add_layers_cb.isChecked():
+            self._add_layers_cb.setChecked(False)
+        self._update_submit_button_text()
+
+    def _on_add_layers_toggled(self, checked: bool):
+        # Checking "add as layers" implies the files must be downloaded.
+        if checked and not self._download_cb.isChecked():
+            self._download_cb.setChecked(True)
+        self._update_submit_button_text()
+
+    def _post_run_behavior_value(self) -> str:
+        if self._add_layers_cb.isChecked():
+            return _POST_RUN_DOWNLOAD_AND_ADD
+        if self._download_cb.isChecked():
+            return _POST_RUN_DOWNLOAD
+        return _POST_RUN_NOTHING
+
     def _update_submit_button_text(self):
-        behavior = self._post_run_combo.currentData()
-        if behavior in (_POST_RUN_DOWNLOAD, _POST_RUN_DOWNLOAD_AND_ADD):
+        if self._download_cb.isChecked():
             self._submit_btn.setText("Choose Download Location and Submit")
         else:
             self._submit_btn.setText("Submit Run")
@@ -1194,7 +1214,7 @@ class WorkerRunDialog(QDialog):
         if missing_sidecars and not self._confirm_missing_sidecars(missing_sidecars):
             return
 
-        behavior = self._post_run_combo.currentData()
+        behavior = self._post_run_behavior_value()
         if behavior != _POST_RUN_NOTHING:
             dest = QFileDialog.getExistingDirectory(
                 self, "Select folder for post-run downloads",

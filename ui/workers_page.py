@@ -426,6 +426,7 @@ class WorkersPage(QWidget):
         row2.addWidget(self._tenant_filter, 1)
 
         self._all_teams_cb = QCheckBox("Include teammates' jobs")
+        self._all_teams_cb.setObjectName("npRunCheckbox")
         self._all_teams_cb.setToolTip(
             "When checked, include jobs created by other members of "
             "accessible tenants (allTeams=true)."
