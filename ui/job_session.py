@@ -13,6 +13,11 @@ TERMINAL_STATUSES = frozenset({
 
 _POLL_INTERVAL_MS = 5000
 
+# In-memory cache of fetched full logs keyed by job_id. Terminal job logs
+# are immutable, so once fetched there's no reason to hit the network again
+# on subsequent list refreshes.
+_LOG_CACHE: dict[str, list[str]] = {}
+
 
 class JobSession(QObject):
     """Tracks state for a submitted worker job.
@@ -109,11 +114,16 @@ class JobSession(QObject):
             except (ValueError, TypeError, AttributeError):
                 pass
 
-        # Fetch the full log for terminal jobs that have a client.
+        # For terminal jobs with a client, serve the full log from cache if
+        # we've already fetched it; otherwise fetch in the background.
         if session.status in TERMINAL_STATUSES and client and session.job_id:
-            threading.Thread(
-                target=session._try_fetch_full_log, daemon=True,
-            ).start()
+            cached = _LOG_CACHE.get(session.job_id)
+            if cached is not None:
+                session.logs = list(cached)
+            else:
+                threading.Thread(
+                    target=session._try_fetch_full_log, daemon=True,
+                ).start()
 
         return session
 
@@ -236,6 +246,8 @@ class JobSession(QObject):
             self._emit_log("--- full log ---")
             for line in log_text.splitlines():
                 self._emit_log(line)
+            if self.status in TERMINAL_STATUSES:
+                _LOG_CACHE[self.job_id] = list(self.logs)
         except Exception:
             if not self.logs:
                 self._emit_log("No logs found.")

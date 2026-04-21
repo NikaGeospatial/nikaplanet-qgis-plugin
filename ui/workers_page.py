@@ -346,20 +346,36 @@ class WorkersPage(QWidget):
         row2 = QHBoxLayout()
         row2.setSpacing(6)
 
+        self._worker_filter = QComboBox()
+        self._worker_filter.setObjectName("npRunCombo")
+        self._worker_filter.addItem("All workers", "")
+        row2.addWidget(self._worker_filter, 1)
+
+        self._version_filter = QComboBox()
+        self._version_filter.setObjectName("npRunCombo")
+        self._version_filter.addItem("All versions", "")
+        self._version_filter.setEnabled(False)
+        row2.addWidget(self._version_filter, 1)
+
+        parent_lay.addLayout(row2)
+
+        row3 = QHBoxLayout()
+        row3.setSpacing(6)
+
         self._tenant_filter = QComboBox()
         self._tenant_filter.setObjectName("npRunCombo")
         self._tenant_filter.addItem("All teams", "")
-        row2.addWidget(self._tenant_filter, 1)
+        row3.addWidget(self._tenant_filter, 1)
 
         self._all_teams_cb = QCheckBox("Include teammates' jobs")
         self._all_teams_cb.setToolTip(
             "When checked, include jobs created by other members of "
             "accessible tenants (allTeams=true)."
         )
-        row2.addWidget(self._all_teams_cb)
+        row3.addWidget(self._all_teams_cb)
 
-        row2.addStretch()
-        parent_lay.addLayout(row2)
+        row3.addStretch()
+        parent_lay.addLayout(row3)
 
         # allTeams is a scope change — it widens the set of jobs the server
         # returns, so it needs a re-fetch. Everything else is a local
@@ -377,9 +393,61 @@ class WorkersPage(QWidget):
         self._sort_filter.currentIndexChanged.connect(
             self._rebuild_submitted_list
         )
+        self._worker_filter.currentIndexChanged.connect(
+            self._on_worker_filter_changed
+        )
+        self._version_filter.currentIndexChanged.connect(
+            self._rebuild_submitted_list
+        )
 
     def _on_scope_changed(self, *_):
         self.load_job_history()
+
+    def _on_worker_filter_changed(self, *_):
+        self._refresh_version_filter()
+        self._rebuild_submitted_list()
+
+    def _refresh_worker_filter(self):
+        """Populate the Worker dropdown from the current sessions list."""
+        current = self._worker_filter.currentData()
+        self._worker_filter.blockSignals(True)
+        self._worker_filter.clear()
+        self._worker_filter.addItem("All workers", "")
+        workers: dict[str, str] = {}
+        for s in self._sessions:
+            if s.worker_id and s.worker_id not in workers:
+                workers[s.worker_id] = s.worker_name or s.worker_id
+        for wid, name in sorted(workers.items(), key=lambda x: x[1].lower()):
+            self._worker_filter.addItem(name, wid)
+        if current:
+            idx = self._worker_filter.findData(current)
+            if idx >= 0:
+                self._worker_filter.setCurrentIndex(idx)
+        self._worker_filter.blockSignals(False)
+        self._refresh_version_filter()
+
+    def _refresh_version_filter(self):
+        """Populate the Version dropdown for the currently-selected worker."""
+        worker_id = self._worker_filter.currentData()
+        current = self._version_filter.currentData()
+        self._version_filter.blockSignals(True)
+        self._version_filter.clear()
+        self._version_filter.addItem("All versions", "")
+        if not worker_id:
+            self._version_filter.setEnabled(False)
+        else:
+            self._version_filter.setEnabled(True)
+            versions = sorted({
+                s.version for s in self._sessions
+                if s.worker_id == worker_id and s.version
+            })
+            for v in versions:
+                self._version_filter.addItem(f"v{v}", v)
+            if current:
+                idx = self._version_filter.findData(current)
+                if idx >= 0:
+                    self._version_filter.setCurrentIndex(idx)
+        self._version_filter.blockSignals(False)
 
     def set_tenants(self, tenants_data: list[dict]):
         """Populate the tenant filter dropdown from the catalog fetch."""
@@ -481,6 +549,7 @@ class WorkersPage(QWidget):
             historical.append(s)
 
         self._sessions = active + historical
+        self._refresh_worker_filter()
         self._rebuild_submitted_list()
         self._stop_refresh_spin()
 
@@ -613,6 +682,13 @@ class WorkersPage(QWidget):
             tenant_id = self._tenant_filter.currentData()
             if tenant_id:
                 sessions = [s for s in sessions if s.tenant_id == tenant_id]
+
+            worker_id = self._worker_filter.currentData()
+            if worker_id:
+                sessions = [s for s in sessions if s.worker_id == worker_id]
+                version = self._version_filter.currentData()
+                if version:
+                    sessions = [s for s in sessions if s.version == version]
 
             days = self._date_filter.currentData()
             if isinstance(days, int) and days > 0:
