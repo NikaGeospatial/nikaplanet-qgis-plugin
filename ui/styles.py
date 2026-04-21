@@ -219,6 +219,37 @@ def _stylesheet(c: dict) -> str:
     border-color: {c["primary"]};
     color: {c["primary"]};
 }}
+#npFiltersToggle {{
+    background: transparent;
+    color: {c["text_dim"]};
+    border: 1px solid {c["btn_outline_bdr"]};
+    border-radius: 6px;
+    font-size: 9pt;
+    font-weight: 600;
+    padding: 5px 12px;
+}}
+#npFiltersToggle:hover {{
+    border-color: {c["primary"]};
+    color: {c["primary"]};
+}}
+#npFiltersToggle:checked {{
+    background: {c["surface_high"]};
+    border-color: {c["primary"]};
+    color: {c["primary"]};
+}}
+#npResetFiltersBtn {{
+    background: transparent;
+    color: {c["text_dim"]};
+    border: 1px solid {c["btn_outline_bdr"]};
+    border-radius: 6px;
+    font-size: 8pt;
+    font-weight: 600;
+    padding: 3px 10px;
+}}
+#npResetFiltersBtn:hover {{
+    border-color: {c["primary"]};
+    color: {c["primary"]};
+}}
 #npLogoutBtn {{
     background: transparent;
     color: {c["btn_outline_fg"]};

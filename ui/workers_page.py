@@ -9,6 +9,7 @@ from qgis.PyQt.QtWidgets import (
     QLabel,
     QCheckBox,
     QComboBox,
+    QLineEdit,
     QPushButton,
     QScrollArea,
     QFrame,
@@ -29,6 +30,43 @@ from qgis.core import QgsMessageLog, Qgis
 from .job_session import JobSession, TERMINAL_STATUSES
 from .worker_run_dialog import WorkerRunDialog
 from ..util.messages import PLUGIN_LOG_TAG
+
+
+# Cached lowercase search text per job_id: "worker_name vversion job_id".
+# Rebuilding this on every keystroke for hundreds of jobs would be wasteful,
+# and since the tuple (name, version, job_id) is immutable once the job
+# exists on the server, caching by job_id is safe.
+_JOB_TEXT_CACHE: dict[str, str] = {}
+
+
+def _relative_time(dt) -> str:
+    from datetime import datetime
+    total = int((datetime.now() - dt).total_seconds())
+    if total < 60:
+        return "just now"
+    if total < 3600:
+        m = total // 60
+        return f"{m} minute{'s' if m != 1 else ''} ago"
+    if total < 86400:
+        h = total // 3600
+        return f"{h} hour{'s' if h != 1 else ''} ago"
+    d = total // 86400
+    return f"{d} day{'s' if d != 1 else ''} ago"
+
+
+def _session_search_text(session: JobSession) -> str:
+    jid = session.job_id or ""
+    if jid and jid in _JOB_TEXT_CACHE:
+        return _JOB_TEXT_CACHE[jid]
+    parts = [
+        session.worker_name or "",
+        f"v{session.version}" if session.version else "",
+        jid or session.session_id or "",
+    ]
+    text = " ".join(p for p in parts if p).lower()
+    if jid:
+        _JOB_TEXT_CACHE[jid] = text
+    return text
 
 
 class _SpinningRefreshButton(QPushButton):
@@ -175,9 +213,19 @@ class _SubmittedJobCard(QWidget):
         name_lbl = QLabel(f"{session.worker_name}  v{session.version}")
         name_lbl.setObjectName("npWorkerName")
         info.addWidget(name_lbl)
+
+        sid_row = QHBoxLayout()
+        sid_row.setContentsMargins(0, 0, 0, 0)
+        sid_row.setSpacing(6)
         self._sid_lbl = QLabel(session.session_id)
         self._sid_lbl.setObjectName("npWorkerDesc")
-        info.addWidget(self._sid_lbl)
+        sid_row.addWidget(self._sid_lbl)
+        ts_lbl = QLabel(f"\u00B7 {_relative_time(session.created_at)}")
+        ts_lbl.setObjectName("npWorkerDesc")
+        sid_row.addWidget(ts_lbl)
+        sid_row.addStretch()
+        info.addLayout(sid_row)
+
         lay.addLayout(info, 1)
 
         self._status_lbl = QLabel(session.status)
@@ -246,7 +294,7 @@ class WorkersPage(QWidget):
         self._workers_tab_btn.clicked.connect(lambda: self._switch_tab(0))
         tab_row.addWidget(self._workers_tab_btn)
 
-        self._submitted_tab_btn = QPushButton("SESSIONS")
+        self._submitted_tab_btn = QPushButton("JOB HISTORY")
         self._submitted_tab_btn.setObjectName("npTabBtn")
         self._submitted_tab_btn.setCheckable(True)
         self._submitted_tab_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -319,6 +367,32 @@ class WorkersPage(QWidget):
     ]
 
     def _build_session_filters(self, parent_lay: QVBoxLayout):
+        # Top row: search + filters toggle
+        top = QHBoxLayout()
+        top.setSpacing(6)
+
+        self._search_input = QLineEdit()
+        self._search_input.setObjectName("npRunInput")
+        self._search_input.setPlaceholderText(
+            "Search by worker, version, or job id\u2026"
+        )
+        self._search_input.setClearButtonEnabled(True)
+        top.addWidget(self._search_input, 1)
+
+        self._filters_toggle = QPushButton("\u25B8 Filters")
+        self._filters_toggle.setObjectName("npFiltersToggle")
+        self._filters_toggle.setCheckable(True)
+        self._filters_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
+        top.addWidget(self._filters_toggle)
+
+        parent_lay.addLayout(top)
+
+        # Collapsible filter container
+        self._filters_container = QWidget()
+        fc_lay = QVBoxLayout(self._filters_container)
+        fc_lay.setContentsMargins(0, 0, 0, 0)
+        fc_lay.setSpacing(6)
+
         row1 = QHBoxLayout()
         row1.setSpacing(6)
 
@@ -341,41 +415,53 @@ class WorkersPage(QWidget):
             self._sort_filter.addItem(label, mode)
         row1.addWidget(self._sort_filter, 1)
 
-        parent_lay.addLayout(row1)
+        fc_lay.addLayout(row1)
 
         row2 = QHBoxLayout()
         row2.setSpacing(6)
 
-        self._worker_filter = QComboBox()
-        self._worker_filter.setObjectName("npRunCombo")
-        self._worker_filter.addItem("All workers", "")
-        row2.addWidget(self._worker_filter, 1)
-
-        self._version_filter = QComboBox()
-        self._version_filter.setObjectName("npRunCombo")
-        self._version_filter.addItem("All versions", "")
-        self._version_filter.setEnabled(False)
-        row2.addWidget(self._version_filter, 1)
-
-        parent_lay.addLayout(row2)
-
-        row3 = QHBoxLayout()
-        row3.setSpacing(6)
-
         self._tenant_filter = QComboBox()
         self._tenant_filter.setObjectName("npRunCombo")
         self._tenant_filter.addItem("All teams", "")
-        row3.addWidget(self._tenant_filter, 1)
+        row2.addWidget(self._tenant_filter, 1)
 
         self._all_teams_cb = QCheckBox("Include teammates' jobs")
         self._all_teams_cb.setToolTip(
             "When checked, include jobs created by other members of "
             "accessible tenants (allTeams=true)."
         )
-        row3.addWidget(self._all_teams_cb)
+        row2.addWidget(self._all_teams_cb)
 
-        row3.addStretch()
-        parent_lay.addLayout(row3)
+        row2.addStretch()
+        fc_lay.addLayout(row2)
+
+        row3 = QHBoxLayout()
+        row3.setSpacing(6)
+
+        self._worker_filter = QComboBox()
+        self._worker_filter.setObjectName("npRunCombo")
+        self._worker_filter.addItem("All workers", "")
+        row3.addWidget(self._worker_filter, 1)
+
+        self._version_filter = QComboBox()
+        self._version_filter.setObjectName("npRunCombo")
+        self._version_filter.addItem("All versions", "")
+        self._version_filter.setEnabled(False)
+        row3.addWidget(self._version_filter, 1)
+
+        fc_lay.addLayout(row3)
+
+        row4 = QHBoxLayout()
+        row4.setSpacing(6)
+        row4.addStretch()
+        self._reset_filters_btn = QPushButton("Reset filters")
+        self._reset_filters_btn.setObjectName("npResetFiltersBtn")
+        self._reset_filters_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        row4.addWidget(self._reset_filters_btn)
+        fc_lay.addLayout(row4)
+
+        self._filters_container.setVisible(False)
+        parent_lay.addWidget(self._filters_container)
 
         # allTeams is a scope change — it widens the set of jobs the server
         # returns, so it needs a re-fetch. Everything else is a local
@@ -388,7 +474,7 @@ class WorkersPage(QWidget):
             self._rebuild_submitted_list
         )
         self._tenant_filter.currentIndexChanged.connect(
-            self._rebuild_submitted_list
+            self._on_tenant_filter_changed
         )
         self._sort_filter.currentIndexChanged.connect(
             self._rebuild_submitted_list
@@ -399,6 +485,15 @@ class WorkersPage(QWidget):
         self._version_filter.currentIndexChanged.connect(
             self._rebuild_submitted_list
         )
+        self._search_input.textChanged.connect(self._rebuild_submitted_list)
+        self._filters_toggle.toggled.connect(self._on_filters_toggled)
+        self._reset_filters_btn.clicked.connect(self._on_reset_filters)
+
+    def _on_filters_toggled(self, checked: bool):
+        self._filters_container.setVisible(checked)
+        self._filters_toggle.setText(
+            "\u25BE Filters" if checked else "\u25B8 Filters"
+        )
 
     def _on_scope_changed(self, *_):
         self.load_job_history()
@@ -407,18 +502,73 @@ class WorkersPage(QWidget):
         self._refresh_version_filter()
         self._rebuild_submitted_list()
 
+    def _on_tenant_filter_changed(self, *_):
+        # Tenant scope narrows the workers list — rebuild it first.
+        self._refresh_worker_filter()
+        self._rebuild_submitted_list()
+
+    def _on_reset_filters(self):
+        # Block signals so intermediate rebuilds don't fire repeatedly.
+        widgets = [
+            self._status_filter, self._date_filter, self._sort_filter,
+            self._tenant_filter, self._worker_filter, self._version_filter,
+            self._all_teams_cb,
+        ]
+        for w in widgets:
+            w.blockSignals(True)
+        self._status_filter.setCurrentIndex(0)
+        self._date_filter.setCurrentIndex(0)
+        self._sort_filter.setCurrentIndex(0)
+        self._tenant_filter.setCurrentIndex(0)
+        self._worker_filter.setCurrentIndex(0)
+        self._version_filter.setCurrentIndex(0)
+        was_all_teams = self._all_teams_cb.isChecked()
+        self._all_teams_cb.setChecked(False)
+        for w in widgets:
+            w.blockSignals(False)
+
+        self._refresh_worker_filter()
+        # allTeams is a server-side scope — if it was on, re-fetch.
+        if was_all_teams:
+            self.load_job_history()
+        else:
+            self._rebuild_submitted_list()
+
     def _refresh_worker_filter(self):
-        """Populate the Worker dropdown from the current sessions list."""
+        """Populate the Worker dropdown from sessions in the active tenant
+        scope, disambiguating duplicate names with a (team) suffix."""
         current = self._worker_filter.currentData()
+        tenant_id = self._tenant_filter.currentData()
         self._worker_filter.blockSignals(True)
         self._worker_filter.clear()
         self._worker_filter.addItem("All workers", "")
-        workers: dict[str, str] = {}
+
+        # worker_id -> (display_name, tenant_name)
+        workers: dict[str, tuple[str, str]] = {}
         for s in self._sessions:
-            if s.worker_id and s.worker_id not in workers:
-                workers[s.worker_id] = s.worker_name or s.worker_id
-        for wid, name in sorted(workers.items(), key=lambda x: x[1].lower()):
-            self._worker_filter.addItem(name, wid)
+            if not s.worker_id:
+                continue
+            if tenant_id and s.tenant_id != tenant_id:
+                continue
+            if s.worker_id not in workers:
+                workers[s.worker_id] = (
+                    s.worker_name or s.worker_id,
+                    s.tenant_name or "",
+                )
+
+        # Count occurrences of each display name to detect collisions.
+        name_counts: dict[str, int] = {}
+        for _wid, (name, _tn) in workers.items():
+            name_counts[name] = name_counts.get(name, 0) + 1
+
+        for wid, (name, tenant_name) in sorted(
+            workers.items(), key=lambda x: x[1][0].lower()
+        ):
+            label = name
+            if name_counts.get(name, 0) > 1 and tenant_name:
+                label = f"{name} ({tenant_name})"
+            self._worker_filter.addItem(label, wid)
+
         if current:
             idx = self._worker_filter.findData(current)
             if idx >= 0:
@@ -673,6 +823,14 @@ class WorkersPage(QWidget):
     def _sorted_sessions(self) -> list[JobSession]:
         from datetime import datetime, timedelta
         sessions = list(self._sessions)
+
+        if hasattr(self, "_search_input"):
+            query = self._search_input.text().strip().lower()
+            if query:
+                sessions = [
+                    s for s in sessions
+                    if query in _session_search_text(s)
+                ]
 
         if hasattr(self, "_status_filter"):
             status = self._status_filter.currentData()

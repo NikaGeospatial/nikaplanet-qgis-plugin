@@ -43,6 +43,7 @@ class JobSession(QObject):
         machine_type: str,
         input_args: list[dict],
         worker_id: str = "",
+        tenant_name: str = "",
         client=None,
         parent: QObject | None = None,
     ):
@@ -51,6 +52,7 @@ class JobSession(QObject):
         self.worker_name = worker_name
         self.version = version
         self.tenant_id = tenant_id
+        self.tenant_name = tenant_name
         self.machine_type = machine_type
         self.input_args = input_args
         self.job_id: str | None = None
@@ -91,6 +93,7 @@ class JobSession(QObject):
             machine_type=job_data.get("machineType", ""),
             input_args=job_data.get("inputParams") or [],
             worker_id=job_data.get("workerId", ""),
+            tenant_name=job_data.get("tenantName", "") or "",
             client=None,
             parent=parent,
         )

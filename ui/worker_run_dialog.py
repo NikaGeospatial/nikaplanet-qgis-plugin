@@ -1213,6 +1213,7 @@ class WorkerRunDialog(QDialog):
             machine_type=self._machine_combo.currentText(),
             input_args=schema_with_args,
             worker_id=self._worker.get("id", ""),
+            tenant_name=self._worker.get("tenantName", "") or "",
             client=self._client,
         )
         self.job_submitted.emit(session)
