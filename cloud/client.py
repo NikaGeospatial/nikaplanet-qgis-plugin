@@ -15,6 +15,7 @@ from qgis.core import QgsMessageLog, Qgis
 from .auth import AuthManager
 from .models import PrepareResponse, SubmitResponse, WorkerJob, OutputEntry
 from ..util.messages import PLUGIN_LOG_TAG as LOG_TAG
+from ..util.http import safe_urlopen
 from ..util.settings import get_control_server_url
 
 
@@ -55,7 +56,7 @@ class WorkerJobsClient:
         QgsMessageLog.logMessage(f"{method} {url}", LOG_TAG, Qgis.Info)
 
         try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
+            with safe_urlopen(req, timeout=30) as resp:
                 raw = resp.read()
                 return json.loads(raw) if raw else {}
         except HTTPError as exc:
@@ -232,7 +233,7 @@ class WorkerJobsClient:
 
         os.makedirs(os.path.dirname(local_path) or ".", exist_ok=True)
         try:
-            with urllib.request.urlopen(req, timeout=300) as resp:
+            with safe_urlopen(req, timeout=300) as resp:
                 with open(local_path, "wb") as f:
                     while True:
                         chunk = resp.read(1024 * 1024)
@@ -286,7 +287,7 @@ def upload_file_to_gcs(local_path: str, upload_url: str) -> None:
         req.add_header("Content-Type", "application/octet-stream")
         req.add_header("Content-Length", str(size))
         timeout = max(60, size // (1024 * 1024) * 2)
-        urllib.request.urlopen(req, timeout=timeout)
+        safe_urlopen(req, timeout=timeout)
 
 
 def download_file(url: str, local_path: str) -> None:
@@ -295,7 +296,7 @@ def download_file(url: str, local_path: str) -> None:
 
     os.makedirs(os.path.dirname(local_path), exist_ok=True)
     req = urllib.request.Request(url, method="GET")
-    with urllib.request.urlopen(req, timeout=300) as resp:
+    with safe_urlopen(req, timeout=300) as resp:
         with open(local_path, "wb") as f:
             while True:
                 chunk = resp.read(1024 * 1024)

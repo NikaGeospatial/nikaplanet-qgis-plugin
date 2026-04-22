@@ -10,6 +10,7 @@ from qgis.PyQt.QtGui import QIcon
 from .sample_algorithm import ExampleProcessingAlgorithm
 from .remote_algorithm import RemoteAlgorithm
 from ..cloud.auth import AuthManager
+from ..util.http import safe_urlopen
 from ..util.messages import PLUGIN_LOG_TAG
 from ..util.settings import get_control_server_url
 
@@ -82,7 +83,7 @@ class NikaPlanetProvider(QgsProcessingProvider):
         else:
             QgsMessageLog.logMessage("No AuthManager configured", PLUGIN_LOG_TAG, Qgis.Warning)
         try:
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            with safe_urlopen(req, timeout=10) as resp:
                 status = resp.status
                 raw = resp.read()
                 QgsMessageLog.logMessage(f"Response status={status}, body length={len(raw)}", PLUGIN_LOG_TAG, Qgis.Info)

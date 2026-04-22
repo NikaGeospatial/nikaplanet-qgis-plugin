@@ -11,7 +11,9 @@ import time
 import webbrowser
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlencode, urlparse, parse_qs
-from urllib.request import Request, urlopen
+from urllib.request import Request
+
+from ..util.http import safe_urlopen
 
 from qgis.core import QgsMessageLog, QgsSettings, Qgis
 from qgis.PyQt.QtCore import QCoreApplication, QEvent, QObject, pyqtSignal, pyqtSlot
@@ -490,7 +492,7 @@ class AuthManager(QObject):
         req = Request(url, method="GET")
         req.add_header("Authorization", f"Bearer {id_token}")
         try:
-            with urlopen(req, timeout=15) as resp:
+            with safe_urlopen(req, timeout=15) as resp:
                 data = json.loads(resp.read())
                 user = data.get("data")
                 if isinstance(user, dict) and user.get("username"):
@@ -597,7 +599,7 @@ class AuthManager(QObject):
         req = Request(url, data=body, method="POST")
         req.add_header("Content-Type", "application/json")
         try:
-            with urlopen(req, timeout=30) as resp:
+            with safe_urlopen(req, timeout=30) as resp:
                 raw = resp.read()
                 status = getattr(resp, "status", "?")
                 QgsMessageLog.logMessage(
@@ -648,7 +650,7 @@ class AuthManager(QObject):
         req = Request(url, data=body, method="POST")
         req.add_header("Content-Type", "application/json")
         try:
-            with urlopen(req, timeout=30) as resp:
+            with safe_urlopen(req, timeout=30) as resp:
                 data = json.loads(resp.read())
                 new_token = data.get("idToken")
                 if new_token:

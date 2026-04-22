@@ -269,8 +269,8 @@ class JobSession(QObject):
         self.log_fetch_started.emit()
         try:
             signed_url = self._client.get_job_log_url(self.job_id)
-            import urllib.request
-            with urllib.request.urlopen(signed_url, timeout=30) as resp:
+            from ..util.http import safe_urlopen
+            with safe_urlopen(signed_url, timeout=30) as resp:
                 log_text = resp.read().decode("utf-8", errors="replace")
             self._emit_log("--- full log ---")
             for line in log_text.splitlines():

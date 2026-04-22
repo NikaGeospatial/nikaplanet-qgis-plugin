@@ -17,6 +17,7 @@ from qgis.core import (
 )
 
 from ..cloud.auth import AuthManager
+from ..util.http import safe_urlopen
 from ..util.settings import get_control_server_url
 
 # Map (input type, output) to a QGIS parameter builder.
@@ -117,7 +118,7 @@ class RemoteAlgorithm(QgsProcessingAlgorithm):
             if token:
                 req.add_header("Authorization", f"Bearer {token}")
         try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
+            with safe_urlopen(req, timeout=30) as resp:
                 body = json.loads(resp.read())
         except Exception as exc:
             # Surface server errors as a QGIS processing exception so the
