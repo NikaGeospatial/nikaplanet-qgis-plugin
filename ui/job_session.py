@@ -19,6 +19,18 @@ _POLL_INTERVAL_MS = 5000
 _LOG_CACHE: dict[str, list[str]] = {}
 
 
+def _parse_iso(value) -> datetime | None:
+    """Parse an ISO-8601 timestamp into a naive UTC datetime, or None."""
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(
+            value.replace("Z", "+00:00")
+        ).replace(tzinfo=None)
+    except (ValueError, TypeError, AttributeError):
+        return None
+
+
 class JobSession(QObject):
     """Tracks state for a submitted worker job.
 
@@ -59,6 +71,9 @@ class JobSession(QObject):
         self.session_id = f"WM-{random.randint(1000, 9999)}-ALPHA"
         self.start_time = datetime.now()
         self.created_at = self.start_time
+        self.job_submitted_at: datetime | None = None
+        self.job_cancelled_at: datetime | None = None
+        self.job_ended_at: datetime | None = None
         self.logs: list[str] = []
         self.has_output_files = False
 
@@ -108,14 +123,12 @@ class JobSession(QObject):
         session.logs.clear()
         if job_data.get("logPreview"):
             session.logs.append(job_data["logPreview"])
-        created_at = job_data.get("createdAt")
+        created_at = _parse_iso(job_data.get("createdAt"))
         if created_at:
-            try:
-                session.created_at = datetime.fromisoformat(
-                    created_at.replace("Z", "+00:00")
-                ).replace(tzinfo=None)
-            except (ValueError, TypeError, AttributeError):
-                pass
+            session.created_at = created_at
+        session.job_submitted_at = _parse_iso(job_data.get("jobSubmittedAt"))
+        session.job_cancelled_at = _parse_iso(job_data.get("jobCancelledAt"))
+        session.job_ended_at = _parse_iso(job_data.get("jobEndedAt"))
 
         # For terminal jobs with a client, serve the full log from cache if
         # we've already fetched it; otherwise fetch in the background.
@@ -177,6 +190,7 @@ class JobSession(QObject):
 
             self._emit_log("[INFO]  Submitting job\u2026")
             submit_resp = self._client.submit_job(resp.jobId)
+            self.job_submitted_at = datetime.now()
             self._set_status(submit_resp.status)
             self._emit_log(f"[INFO]  Job status: {submit_resp.status}")
             if self.machine_type.lower() == "cpux3":
@@ -221,6 +235,18 @@ class JobSession(QObject):
             return
 
         self.has_output_files = job.hasOutputFiles
+        # Pull the authoritative server timestamps in every poll so the
+        # dialog's Duration card settles on the real runtime once the job
+        # finishes (jobEndedAt is null until the pod terminates).
+        submitted = _parse_iso(getattr(job, "jobSubmittedAt", None))
+        if submitted:
+            self.job_submitted_at = submitted
+        cancelled = _parse_iso(getattr(job, "jobCancelledAt", None))
+        if cancelled:
+            self.job_cancelled_at = cancelled
+        ended = _parse_iso(getattr(job, "jobEndedAt", None))
+        if ended:
+            self.job_ended_at = ended
         if job.status != self.status:
             self._set_status(job.status)
 
@@ -268,14 +294,36 @@ class JobSession(QObject):
                 self._client.cancel_job(self.job_id)
             except Exception:
                 pass
+        self.job_cancelled_at = datetime.now()
         self._set_status("CANCELLED")
         self._emit_log("[INFO]  Session cancelled by user.")
 
     # ── helpers ──────────────────────────────────────────────────
 
     def elapsed(self) -> str:
-        delta = datetime.now() - self.start_time
-        total = int(delta.total_seconds())
+        """Compute the job's wall-clock runtime for display.
+
+        Start = ``jobSubmittedAt`` when known (Argo workflow submit time),
+        otherwise ``createdAt`` / ``start_time`` as progressively-weaker
+        fallbacks. End = ``jobEndedAt`` when the pod has terminated, else
+        ``jobCancelledAt`` for cancels, else ``now()`` while the job is
+        still running. Pre-run terminal states (EXPIRED / UPLOAD_FAILED /
+        SUBMIT_FAILED) never ran a pod, so they report a zero delta rather
+        than ticking up forever.
+        """
+        start = self.job_submitted_at or self.created_at or self.start_time
+
+        if self.job_ended_at:
+            end = self.job_ended_at
+        elif self.status == "CANCELLED" and self.job_cancelled_at:
+            end = self.job_cancelled_at
+        elif self.status in TERMINAL_STATUSES and not self.job_submitted_at:
+            # Terminal before the pod ever ran — no runtime to report.
+            end = start
+        else:
+            end = datetime.now()
+
+        total = max(int((end - start).total_seconds()), 0)
         return f"{total // 60}m {total % 60}s"
 
     def _emit_log(self, line: str):

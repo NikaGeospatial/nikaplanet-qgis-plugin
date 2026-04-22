@@ -675,6 +675,7 @@ class WorkersPage(QWidget):
                     "hasOutputFiles": j.hasOutputFiles,
                     "jobSubmittedAt": j.jobSubmittedAt,
                     "jobCancelledAt": j.jobCancelledAt,
+                    "jobEndedAt": j.jobEndedAt,
                     "createdAt": j.createdAt,
                 }
                 for j in jobs

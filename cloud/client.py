@@ -271,6 +271,7 @@ def _parse_worker_job(data: dict) -> WorkerJob:
         hasOutputFiles=data.get("hasOutputFiles", False),
         jobSubmittedAt=data.get("jobSubmittedAt"),
         jobCancelledAt=data.get("jobCancelledAt"),
+        jobEndedAt=data.get("jobEndedAt"),
         createdAt=data["createdAt"],
     )
 

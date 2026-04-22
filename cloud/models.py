@@ -95,6 +95,7 @@ class WorkerJob:
     hasOutputFiles: bool = False
     jobSubmittedAt: Optional[str] = None
     jobCancelledAt: Optional[str] = None
+    jobEndedAt: Optional[str] = None
 
 
 @dataclass
