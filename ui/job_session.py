@@ -6,10 +6,7 @@ from datetime import datetime
 
 from qgis.PyQt.QtCore import QObject, QTimer, pyqtSignal
 
-TERMINAL_STATUSES = frozenset({
-    "SUCCESS", "CANCELLED", "EXPIRED", "JOB_FAILED",
-    "UPLOAD_FAILED", "SUBMIT_FAILED",
-})
+from ..cloud.models import TERMINAL_STATUS_NAMES as TERMINAL_STATUSES
 
 _POLL_INTERVAL_MS = 5000
 

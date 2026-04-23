@@ -51,7 +51,7 @@ class NikaPlanetPlugin:
         QTimer.singleShot(0, self._try_auto_login)
 
     def initProcessing(self):
-        self.provider = NikaPlanetProvider(self.auth)
+        self.provider = NikaPlanetProvider(self.auth, self.jobs_client)
         QgsApplication.processingRegistry().addProvider(self.provider)
 
     def unload(self):

@@ -10,6 +10,7 @@ from qgis.PyQt.QtGui import QIcon
 from .sample_algorithm import ExampleProcessingAlgorithm
 from .remote_algorithm import RemoteAlgorithm
 from ..cloud.auth import AuthManager
+from ..cloud.client import WorkerJobsClient
 from ..util.http import safe_urlopen
 from ..util.messages import PLUGIN_LOG_TAG
 from ..util.settings import get_control_server_url
@@ -18,9 +19,14 @@ from ..util.settings import get_control_server_url
 class NikaPlanetProvider(QgsProcessingProvider):
     """A container for processing algorithms we will fetch from the cloud API."""
 
-    def __init__(self, auth: AuthManager | None = None):
+    def __init__(
+        self,
+        auth: AuthManager | None = None,
+        client: WorkerJobsClient | None = None,
+    ):
         super().__init__()
         self._auth = auth
+        self._client = client
         self._authenticated = False
         self._tenant_id: str | None = None
         self.last_fetched_tasks: list[dict] = []
@@ -53,7 +59,7 @@ class NikaPlanetProvider(QgsProcessingProvider):
             self.last_fetched_tasks = self.fetch_remote_tasks()
         for task_def in self.last_fetched_tasks:
             try:
-                self.addAlgorithm(RemoteAlgorithm(task_def, self._auth))
+                self.addAlgorithm(RemoteAlgorithm(task_def, self._client))
                 QgsMessageLog.logMessage(
                     f"Loaded remote task: {task_def.get('name')}",
                     PLUGIN_LOG_TAG, Qgis.Info,

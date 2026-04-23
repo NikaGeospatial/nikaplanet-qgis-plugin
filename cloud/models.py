@@ -28,6 +28,10 @@ TERMINAL_STATUSES = frozenset({
     WorkerJobStatus.SUBMIT_FAILED,
 })
 
+# String form of TERMINAL_STATUSES for callers that compare against the
+# raw status string returned by the API (e.g. WorkerJob.status).
+TERMINAL_STATUS_NAMES = frozenset(s.value for s in TERMINAL_STATUSES)
+
 
 @dataclass
 class DirectoryTreeEntry:

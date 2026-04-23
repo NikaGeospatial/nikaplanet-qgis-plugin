@@ -44,6 +44,7 @@ from qgis.core import (
 )
 from qgis.gui import QgsMapLayerComboBox
 
+from ..util.job_payload import build_input_schema_with_args
 from ..util.messages import PLUGIN_LOG_TAG
 from .job_session import TERMINAL_STATUSES, JobSession
 
@@ -971,30 +972,6 @@ class WorkerRunDialog(QDialog):
         threading.Thread(target=_do_download, daemon=True).start()
 
     _SHP_EXTENSIONS = frozenset({".shp", ".shx", ".dbf", ".prj", ".cpg"})
-    _EXPECTED_SHP_SIDECARS = (".shx", ".dbf", ".prj")
-
-    @classmethod
-    def _missing_shapefile_sidecars(cls, local_path: str) -> list[str]:
-        """Return expected sidecar extensions missing next to ``local_path``.
-
-        Returns [] when the path isn't a shapefile or the file doesn't exist.
-        """
-        if not local_path or not os.path.isfile(local_path):
-            return []
-        if os.path.splitext(local_path)[1].lower() != ".shp":
-            return []
-        directory = os.path.dirname(local_path)
-        stem = os.path.splitext(os.path.basename(local_path))[0]
-        try:
-            names = os.listdir(directory)
-        except OSError:
-            return list(cls._EXPECTED_SHP_SIDECARS)
-        present = {
-            os.path.splitext(n)[1].lower()
-            for n in names
-            if os.path.splitext(n)[0] == stem
-        }
-        return [ext for ext in cls._EXPECTED_SHP_SIDECARS if ext not in present]
 
     def _confirm_missing_sidecars(
         self, missing: list[tuple[str, list[str]]],
@@ -1312,38 +1289,14 @@ class WorkerRunDialog(QDialog):
     # ── submit ────────────────────────────────────────────────────
 
     def _on_submit(self):
-        schema_with_args = []
-        missing_sidecars: list[tuple[str, list[str]]] = []
-        for item in self._input_widgets:
-            inp_def = item["def"]
-            widget = item["widget"]
-            inp_type = inp_def.get("type", "string")
-            is_output = inp_def.get("output", False)
-            value = self._widget_value(widget)
-
-            entry: dict = {
-                "name": inp_def.get("name", ""),
-                "type": inp_type,
-            }
-            for key in ("output", "required", "description", "enum_values", "default", "filetypes"):
-                if key in inp_def:
-                    entry[key] = inp_def[key]
-
-            if is_output and value and inp_type == "folder":
-                entry["args"] = value if value.endswith("/") else value + "/"
-            elif value:
-                entry["args"] = value
-
-            if not is_output and value and inp_type in ("file", "folder"):
-                tree = self._build_directory_tree(value, inp_type)
-                if tree:
-                    entry["directoryTree"] = tree
-                if inp_type == "file":
-                    missing = self._missing_shapefile_sidecars(value)
-                    if missing:
-                        missing_sidecars.append((os.path.basename(value), missing))
-
-            schema_with_args.append(entry)
+        widget_by_def_id = {
+            id(item["def"]): item["widget"] for item in self._input_widgets
+        }
+        inputs_def = [item["def"] for item in self._input_widgets]
+        schema_with_args, missing_sidecars = build_input_schema_with_args(
+            inputs_def,
+            value_for=lambda inp: self._widget_value(widget_by_def_id[id(inp)]),
+        )
 
         if missing_sidecars and not self._confirm_missing_sidecars(missing_sidecars):
             return
@@ -1480,64 +1433,3 @@ class WorkerRunDialog(QDialog):
             return widget.text().strip() or None
         return None
 
-    @staticmethod
-    def _build_directory_tree(local_path: str, inp_type: str) -> list[dict] | None:
-        if inp_type == "file" and os.path.isfile(local_path):
-            entries = [{
-                "path": os.path.basename(local_path),
-                "sizeInBytes": os.path.getsize(local_path),
-            }]
-            if os.path.splitext(local_path)[1].lower() == ".shp":
-                QgsMessageLog.logMessage(
-                    f"Shapefile input detected ({os.path.basename(local_path)}), "
-                    "loading sidecar files\u2026",
-                    PLUGIN_LOG_TAG,
-                    Qgis.Info,
-                )
-                directory = os.path.dirname(local_path)
-                stem = os.path.splitext(os.path.basename(local_path))[0]
-                found = 0
-                for fname in os.listdir(directory):
-                    fstem, fext = os.path.splitext(fname)
-                    if fstem != stem or fext.lower() not in WorkerRunDialog._SHP_EXTENSIONS:
-                        continue
-                    if fname == os.path.basename(local_path):
-                        continue
-                    full = os.path.join(directory, fname)
-                    if os.path.isfile(full):
-                        entries.append({
-                            "path": fname,
-                            "sizeInBytes": os.path.getsize(full),
-                        })
-                        QgsMessageLog.logMessage(
-                            f"Discovered {fext.lower()} sidecar: {fname}",
-                            PLUGIN_LOG_TAG,
-                            Qgis.Info,
-                        )
-                        found += 1
-                if found == 0:
-                    QgsMessageLog.logMessage(
-                        f"No sidecar files found for {os.path.basename(local_path)}",
-                        PLUGIN_LOG_TAG,
-                        Qgis.Warning,
-                    )
-                else:
-                    QgsMessageLog.logMessage(
-                        f"Bundled {found} sidecar file(s) with {os.path.basename(local_path)}",
-                        PLUGIN_LOG_TAG,
-                        Qgis.Info,
-                    )
-            return entries
-        if inp_type == "folder" and os.path.isdir(local_path):
-            parent = os.path.dirname(local_path.rstrip(os.sep))
-            tree = []
-            for root, _dirs, files in os.walk(local_path):
-                for f in files:
-                    full = os.path.join(root, f)
-                    rel = os.path.relpath(full, parent)
-                    tree.append({
-                        "path": rel,
-                        "sizeInBytes": os.path.getsize(full),
-                    })
-            return tree if tree else None
-        return None
