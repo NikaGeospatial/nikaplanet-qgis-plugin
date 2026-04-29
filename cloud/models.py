@@ -1,4 +1,4 @@
-"""Data models for the Worker Jobs API (spec 2026-04-16)."""
+"""Data models for the Worker Jobs API (spec 2026-04-28)."""
 
 from __future__ import annotations
 
@@ -48,7 +48,7 @@ class InputSchemaEntry:
     required: Optional[bool] = None
     description: Optional[str] = None
     default: Optional[str] = None
-    enum_values: Optional[list[str]] = None
+    enumValues: Optional[list[str]] = None
     filetypes: Optional[list[str]] = None  # e.g. [".csv", ".geojson"]
     args: Optional[str] = None
     directoryTree: Optional[list[DirectoryTreeEntry]] = None

@@ -296,8 +296,8 @@ class WorkerRunDialog(QDialog):
         self._machine_combo = QComboBox()
         self._machine_combo.setObjectName("npRunCombo")
         plan = self._worker.get("planFeatures") or {}
-        cpu_types = plan.get("cpu_machine_types") or []
-        gpu_types = plan.get("gpu_machine_types") or []
+        cpu_types = plan.get("cpuMachineTypes") or []
+        gpu_types = plan.get("gpuMachineTypes") or []
         all_types = cpu_types + gpu_types
         if not all_types:
             all_types = ["CPUx3"]
@@ -1358,7 +1358,7 @@ class WorkerRunDialog(QDialog):
         if inp_type == "enum":
             combo = QComboBox()
             combo.setObjectName("npRunCombo")
-            for val in inp.get("enum_values", []):
+            for val in inp.get("enumValues", []):
                 combo.addItem(val)
             default = inp.get("default")
             if default:

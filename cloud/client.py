@@ -1,4 +1,4 @@
-"""HTTP client for the Worker Jobs API (spec 2026-04-16).
+"""HTTP client for the Worker Jobs API (spec 2026-04-28).
 
 Implements: prepare, submit, cancel, get job, list jobs,
             get log URL, list outputs, download output file.

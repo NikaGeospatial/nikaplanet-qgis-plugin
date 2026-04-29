@@ -220,6 +220,10 @@ class _SubmittedJobCard(QWidget):
         self._sid_lbl = QLabel(session.session_id)
         self._sid_lbl.setObjectName("npWorkerDesc")
         sid_row.addWidget(self._sid_lbl)
+        if session.machine_type:
+            mt_lbl = QLabel(f"\u00B7 {session.machine_type}")
+            mt_lbl.setObjectName("npWorkerDesc")
+            sid_row.addWidget(mt_lbl)
         ts_lbl = QLabel(f"\u00B7 {_relative_time(session.created_at)}")
         ts_lbl.setObjectName("npWorkerDesc")
         sid_row.addWidget(ts_lbl)
@@ -671,6 +675,8 @@ class WorkersPage(QWidget):
                     "status": j.status,
                     "machineType": j.machineType,
                     "inputParams": j.inputParams,
+                    "exitCode": j.exitCode,
+                    "exitFailureReason": j.exitFailureReason,
                     "logPreview": j.logPreview,
                     "hasOutputFiles": j.hasOutputFiles,
                     "jobSubmittedAt": j.jobSubmittedAt,

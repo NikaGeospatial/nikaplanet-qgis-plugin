@@ -36,7 +36,7 @@ _MACHINE_PARAM = "MACHINE_TYPE"
 
 
 def _enum_param_for(inp: dict) -> QgsProcessingParameterEnum:
-    values = list(inp.get("enum_values") or [])
+    values = list(inp.get("enumValues") or [])
     default = inp.get("default")
     default_idx = values.index(default) if default in values else 0
     return QgsProcessingParameterEnum(
@@ -126,8 +126,8 @@ class RemoteAlgorithm(QgsProcessingAlgorithm):
 
     def _machine_type_choices(self) -> list[str]:
         plan = self._task_def.get("planFeatures") or {}
-        cpu = plan.get("cpu_machine_types") or []
-        gpu = plan.get("gpu_machine_types") or []
+        cpu = plan.get("cpuMachineTypes") or []
+        gpu = plan.get("gpuMachineTypes") or []
         choices = list(cpu) + list(gpu)
         return choices or ["CPUx3"]
 
@@ -147,7 +147,7 @@ class RemoteAlgorithm(QgsProcessingAlgorithm):
         if inp_type == "boolean":
             return "true" if self.parameterAsBool(parameters, name, context) else "false"
         if inp_type == "enum":
-            values = list(inp.get("enum_values") or [])
+            values = list(inp.get("enumValues") or [])
             idx = self.parameterAsEnum(parameters, name, context)
             if 0 <= idx < len(values):
                 return values[idx]
