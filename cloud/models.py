@@ -48,7 +48,7 @@ class InputSchemaEntry:
     required: Optional[bool] = None
     description: Optional[str] = None
     default: Optional[str] = None
-    enumValues: Optional[list[str]] = None
+    enum_values: Optional[list[str]] = None
     filetypes: Optional[list[str]] = None  # e.g. [".csv", ".geojson"]
     args: Optional[str] = None
     directoryTree: Optional[list[DirectoryTreeEntry]] = None

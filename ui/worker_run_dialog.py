@@ -1358,7 +1358,7 @@ class WorkerRunDialog(QDialog):
         if inp_type == "enum":
             combo = QComboBox()
             combo.setObjectName("npRunCombo")
-            for val in inp.get("enumValues", []):
+            for val in inp.get("enum_values", []):
                 combo.addItem(val)
             default = inp.get("default")
             if default:

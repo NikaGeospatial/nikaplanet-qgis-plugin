@@ -175,7 +175,10 @@ class NikaPlanetPlugin:
         self, owned_workers: list, tenants_data: list,
     ):
         """Main thread: register algorithms and populate the workers page."""
-        self.provider._preloaded_tasks = list(owned_workers)
+        all_workers: list[dict] = []
+        for tenant in tenants_data:
+            all_workers.extend(tenant.get("workers", []))
+        self.provider._preloaded_tasks = all_workers
         self.provider.refreshAlgorithms()
         user = self._user_info or {}
         tenants_with_ids: list[dict] = []

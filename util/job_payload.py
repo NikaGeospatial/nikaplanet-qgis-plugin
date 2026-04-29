@@ -22,7 +22,7 @@ EXPECTED_SHP_SIDECARS = (".shx", ".dbf", ".prj")
 # Keys from an input definition that we copy verbatim into the schema entry
 # sent to the prepare endpoint.
 _PASSTHROUGH_KEYS = (
-    "output", "required", "description", "enumValues", "default", "filetypes",
+    "output", "required", "description", "enum_values", "default", "filetypes",
 )
 
 
@@ -122,7 +122,7 @@ def build_input_schema_with_args(
     Args:
         inputs_def: The worker's declared inputs (each one a dict with at
             least ``name``, ``type``, and optionally ``output``,
-            ``required``, ``description``, ``enumValues``, ``default``,
+            ``required``, ``description``, ``enum_values``, ``default``,
             ``filetypes``).
         value_for: Callable invoked once per input that returns the user-
             entered value as a string (or None / empty when not set).
