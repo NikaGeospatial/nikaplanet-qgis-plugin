@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import random
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 
 from qgis.PyQt.QtCore import QObject, QTimer, pyqtSignal
 
@@ -26,6 +26,11 @@ def _parse_iso(value) -> datetime | None:
         ).replace(tzinfo=None)
     except (ValueError, TypeError, AttributeError):
         return None
+
+
+def utcnow_naive() -> datetime:
+    """Naive UTC ``datetime`` matching the format produced by ``_parse_iso``."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class JobSession(QObject):
@@ -66,7 +71,7 @@ class JobSession(QObject):
         self.input_args = input_args
         self.job_id: str | None = None
         self.session_id = f"WM-{random.randint(1000, 9999)}-ALPHA"
-        self.start_time = datetime.now()
+        self.start_time = utcnow_naive()
         self.created_at = self.start_time
         self.job_submitted_at: datetime | None = None
         self.job_cancelled_at: datetime | None = None
@@ -187,7 +192,7 @@ class JobSession(QObject):
 
             self._emit_log("[INFO]  Submitting job\u2026")
             submit_resp = self._client.submit_job(resp.jobId)
-            self.job_submitted_at = datetime.now()
+            self.job_submitted_at = utcnow_naive()
             self._set_status(submit_resp.status)
             self._emit_log(f"[INFO]  Job status: {submit_resp.status}")
             if self.machine_type.lower() == "cpux3":
@@ -291,7 +296,7 @@ class JobSession(QObject):
                 self._client.cancel_job(self.job_id)
             except Exception:
                 pass
-        self.job_cancelled_at = datetime.now()
+        self.job_cancelled_at = utcnow_naive()
         self._set_status("CANCELLED")
         self._emit_log("[INFO]  Session cancelled by user.")
 
@@ -318,7 +323,7 @@ class JobSession(QObject):
             # Terminal before the pod ever ran — no runtime to report.
             end = start
         else:
-            end = datetime.now()
+            end = utcnow_naive()
 
         total = max(int((end - start).total_seconds()), 0)
         return f"{total // 60}m {total % 60}s"

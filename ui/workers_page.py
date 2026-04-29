@@ -40,8 +40,8 @@ _JOB_TEXT_CACHE: dict[str, str] = {}
 
 
 def _relative_time(dt) -> str:
-    from datetime import datetime
-    total = int((datetime.now() - dt).total_seconds())
+    from .job_session import utcnow_naive
+    total = int((utcnow_naive() - dt).total_seconds())
     if total < 60:
         return "just now"
     if total < 3600:
@@ -823,7 +823,8 @@ class WorkersPage(QWidget):
         self._submitted_scroll.setWidget(content)
 
     def _sorted_sessions(self) -> list[JobSession]:
-        from datetime import datetime, timedelta
+        from datetime import timedelta
+        from .job_session import utcnow_naive
         sessions = list(self._sessions)
 
         if hasattr(self, "_search_input"):
@@ -852,7 +853,7 @@ class WorkersPage(QWidget):
 
             days = self._date_filter.currentData()
             if isinstance(days, int) and days > 0:
-                cutoff = datetime.now() - timedelta(days=days)
+                cutoff = utcnow_naive() - timedelta(days=days)
                 sessions = [s for s in sessions if s.created_at >= cutoff]
 
         mode = self._sort_filter.currentData() if hasattr(
