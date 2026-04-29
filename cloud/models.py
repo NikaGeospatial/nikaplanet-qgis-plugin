@@ -56,7 +56,7 @@ class InputSchemaEntry:
 
 @dataclass
 class PrepareRequest:
-    tenantId: str
+    tenantPublicId: str
     workerId: str
     versionTag: str
     inputSchemaWithArgs: list[dict]
@@ -87,7 +87,7 @@ class WorkerJob:
     versionTag: str
     createdBy: str
     createdByUserName: str
-    tenantId: str
+    tenantPublicId: str
     status: str
     machineType: str
     createdAt: str

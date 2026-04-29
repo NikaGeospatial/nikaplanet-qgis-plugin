@@ -101,7 +101,7 @@ class JobSession(QObject):
         session = cls(
             worker_name=job_data.get("workerName", ""),
             version=job_data.get("versionTag", ""),
-            tenant_id=job_data.get("tenantId", ""),
+            tenant_id=job_data.get("tenantPublicId", ""),
             machine_type=job_data.get("machineType", ""),
             input_args=job_data.get("inputParams") or [],
             worker_id=job_data.get("workerId", ""),
@@ -148,7 +148,7 @@ class JobSession(QObject):
         try:
             self._emit_log("[INFO]  Preparing job\u2026")
             resp = self._client.prepare_job(
-                tenant_id=self.tenant_id,
+                tenant_public_id=self.tenant_id,
                 worker_id=self.worker_id,
                 version_tag=self.version,
                 input_schema_with_args=self.input_args,

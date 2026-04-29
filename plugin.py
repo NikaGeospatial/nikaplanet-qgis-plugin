@@ -104,7 +104,7 @@ class NikaPlanetPlugin:
             f"Logged in as {username}", PLUGIN_LOG_TAG, Qgis.Info
         )
 
-        self.provider._tenant_id = (user.get("ownedTenant") or {}).get("id")
+        self.provider._tenant_public_id = (user.get("ownedTenant") or {}).get("publicId")
         self.provider._authenticated = True
 
         self.login_panel.show_capabilities(username)
@@ -139,12 +139,12 @@ class NikaPlanetPlugin:
         try:
             user = self._user_info or {}
             owned = user.get("ownedTenant") or {}
-            owned_id = owned.get("id")
+            owned_id = owned.get("publicId")
 
             owned_workers: list[dict] = []
             if owned_id:
                 owned_workers = self.provider.fetch_remote_tasks(
-                    tenant_id=owned_id,
+                    tenant_public_id=owned_id,
                 )
 
             tenants_data: list[dict] = []
@@ -154,10 +154,10 @@ class NikaPlanetPlugin:
                     "workers": list(owned_workers),
                 })
             for inv in user.get("invitedTenants") or []:
-                tid = inv.get("id")
+                tid = inv.get("publicId")
                 if not tid:
                     continue
-                workers = self.provider.fetch_remote_tasks(tenant_id=tid)
+                workers = self.provider.fetch_remote_tasks(tenant_public_id=tid)
                 tenants_data.append({
                     "name": inv.get("name", "Team"),
                     "workers": workers,
@@ -180,15 +180,15 @@ class NikaPlanetPlugin:
         user = self._user_info or {}
         tenants_with_ids: list[dict] = []
         owned = user.get("ownedTenant") or {}
-        if owned.get("id"):
+        if owned.get("publicId"):
             tenants_with_ids.append({
-                "id": owned["id"],
+                "id": owned["publicId"],
                 "name": owned.get("name", "My Team"),
             })
         for inv in user.get("invitedTenants") or []:
-            if inv.get("id"):
+            if inv.get("publicId"):
                 tenants_with_ids.append({
-                    "id": inv["id"],
+                    "id": inv["publicId"],
                     "name": inv.get("name", "Team"),
                 })
         self.login_panel.workers_page.set_tenants(tenants_with_ids)
@@ -210,7 +210,7 @@ class NikaPlanetPlugin:
         self.auth.logout()
         self._user_info = None
         self.provider._authenticated = False
-        self.provider._tenant_id = None
+        self.provider._tenant_public_id = None
         self.provider.last_fetched_tasks = []
         self.login_panel.workers_page.clear_sessions()
         self.login_panel.show_login()

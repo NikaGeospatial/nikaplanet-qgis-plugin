@@ -1316,7 +1316,7 @@ class WorkerRunDialog(QDialog):
         session = JobSession(
             worker_name=self._worker.get("name", "unknown"),
             version=self._worker.get("version", "?"),
-            tenant_id=self._worker.get("tenantId", ""),
+            tenant_id=self._worker.get("tenantPublicId", ""),
             machine_type=self._machine_combo.currentText(),
             input_args=schema_with_args,
             worker_id=self._worker.get("id", ""),

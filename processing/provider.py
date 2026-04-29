@@ -28,7 +28,7 @@ class NikaPlanetProvider(QgsProcessingProvider):
         self._auth = auth
         self._client = client
         self._authenticated = False
-        self._tenant_id: str | None = None
+        self._tenant_public_id: str | None = None
         self.last_fetched_tasks: list[dict] = []
         self._preloaded_tasks: list[dict] | None = None
 
@@ -70,13 +70,13 @@ class NikaPlanetProvider(QgsProcessingProvider):
                     PLUGIN_LOG_TAG, Qgis.Warning,
                 )
 
-    def fetch_remote_tasks(self, tenant_id: str | None = None) -> list[dict]:
-        """GET /api/workers?tenantId=… from the control server."""
-        tid = tenant_id or self._tenant_id
+    def fetch_remote_tasks(self, tenant_public_id: str | None = None) -> list[dict]:
+        """GET /api/workers?tenantPublicId=… from the control server."""
+        tid = tenant_public_id or self._tenant_public_id
         if not tid:
-            QgsMessageLog.logMessage("No tenantId available — skipping remote fetch", PLUGIN_LOG_TAG, Qgis.Warning)
+            QgsMessageLog.logMessage("No tenantPublicId available — skipping remote fetch", PLUGIN_LOG_TAG, Qgis.Warning)
             return []
-        url = f"{get_control_server_url()}/api/workers?tenantId={tid}"
+        url = f"{get_control_server_url()}/api/workers?tenantPublicId={tid}"
         QgsMessageLog.logMessage(f"Fetching remote tasks from {url}", PLUGIN_LOG_TAG, Qgis.Info)
         req = urllib.request.Request(url, method = "GET")
         if self._auth:
@@ -93,6 +93,7 @@ class NikaPlanetProvider(QgsProcessingProvider):
                 status = resp.status
                 raw = resp.read()
                 QgsMessageLog.logMessage(f"Response status={status}, body length={len(raw)}", PLUGIN_LOG_TAG, Qgis.Info)
+                QgsMessageLog.logMessage(f"Raw response: {raw.decode('utf-8', errors='replace')}", PLUGIN_LOG_TAG, Qgis.Info)
                 tasks = json.loads(raw)
                 QgsMessageLog.logMessage(f"Parsed {len(tasks)} remote task(s)", PLUGIN_LOG_TAG, Qgis.Info)
                 for i, t in enumerate(tasks):
@@ -115,23 +116,23 @@ class NikaPlanetProvider(QgsProcessingProvider):
         for worker in tasks:
             versions = worker.get("versions", [])
             for ver in versions:
-                schema = ver.get("input_schema") or {}
+                schema = ver.get("inputSchema") or {}
                 flat.append({
                     "id": worker.get("id"),
                     "name": worker.get("name"),
                     "description": ver.get("description") or worker.get("description", ""),
-                    "version": ver.get("version_tag"),
-                    "tenantId": worker.get("tenant_id"),
-                    "tenantName": worker.get("tenant_name"),
-                    "planFeatures": worker.get("plan_features"),
+                    "version": ver.get("versionTag"),
+                    "tenantPublicId": worker.get("tenantPublicId"),
+                    "tenantName": worker.get("tenantName"),
+                    "planFeatures": worker.get("planFeatures"),
                     "visibility": worker.get("visibility"),
                     "owner": worker.get("owner"),
                     "versionId": ver.get("id"),
                     "program": ver.get("program"),
                     "script": ver.get("script"),
                     "inputs": schema.get("inputs", []),
-                    "dirMounts": ver.get("dir_mounts"),
-                    "imageDigest": ver.get("image_digest"),
+                    "dirMounts": ver.get("dirMounts"),
+                    "imageDigest": ver.get("imageDigest"),
                 })
         return flat
 

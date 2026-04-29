@@ -212,7 +212,7 @@ class RemoteAlgorithm(QgsProcessingAlgorithm):
         feedback.pushInfo("Preparing job…")
         try:
             prepare = self._client.prepare_job(
-                tenant_id=self._task_def.get("tenantId", ""),
+                tenant_public_id=self._task_def.get("tenantPublicId", ""),
                 worker_id=self._task_def.get("id", ""),
                 version_tag=self._task_def.get("version", ""),
                 input_schema_with_args=schema,

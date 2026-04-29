@@ -607,7 +607,7 @@ class WorkersPage(QWidget):
         self._tenant_filter.clear()
         self._tenant_filter.addItem("All teams", "")
         for tenant in tenants_data:
-            tid = tenant.get("id") or tenant.get("tenantId")
+            tid = tenant.get("id") or tenant.get("tenantPublicId")
             if not tid:
                 continue
             self._tenant_filter.addItem(tenant.get("name", "Team"), tid)
@@ -666,7 +666,7 @@ class WorkersPage(QWidget):
                     "versionTag": j.versionTag,
                     "createdBy": j.createdBy,
                     "createdByUserName": j.createdByUserName,
-                    "tenantId": j.tenantId,
+                    "tenantPublicId": j.tenantPublicId,
                     "tenantName": j.tenantName,
                     "status": j.status,
                     "machineType": j.machineType,
@@ -773,7 +773,7 @@ class WorkersPage(QWidget):
             "id": session.worker_id,
             "name": session.worker_name,
             "version": session.version,
-            "tenantId": session.tenant_id,
+            "tenantPublicId": session.tenant_id,
         }
         dlg = WorkerRunDialog(
             worker,

@@ -74,7 +74,7 @@ class WorkerJobsClient:
 
     def prepare_job(
         self,
-        tenant_id: str,
+        tenant_public_id: str,
         worker_id: str,
         version_tag: str,
         input_schema_with_args: list[dict],
@@ -82,7 +82,7 @@ class WorkerJobsClient:
     ) -> PrepareResponse:
         """POST /api/workers/jobs/prepare"""
         body = {
-            "tenantId": tenant_id,
+            "tenantPublicId": tenant_public_id,
             "workerId": worker_id,
             "versionTag": version_tag,
             "machineType": machine_type,
@@ -125,7 +125,7 @@ class WorkerJobsClient:
         worker_id: str | None = None,
         status: str | None = None,
         all_teams: bool = False,
-        tenant_id: str | None = None,
+        tenant_public_id: str | None = None,
         version_id: str | None = None,
         start_date: str | None = None,
         end_date: str | None = None,
@@ -135,7 +135,12 @@ class WorkerJobsClient:
         Default scope (2026-04-20): only jobs created by the authenticated
         user. Pass ``all_teams=True`` to include jobs by other members of
         accessible tenants.
+
+        Since 2026-04-28, ``tenant_public_id`` is required when ``worker_id``
+        is provided (workerId is no longer globally unique).
         """
+        if worker_id and not tenant_public_id:
+            raise ValueError("tenant_public_id is required when worker_id is provided")
         params: dict[str, str] = {}
         if worker_id:
             params["workerId"] = worker_id
@@ -143,8 +148,8 @@ class WorkerJobsClient:
             params["status"] = status
         if all_teams:
             params["allTeams"] = "true"
-        if tenant_id:
-            params["tenantId"] = tenant_id
+        if tenant_public_id:
+            params["tenantPublicId"] = tenant_public_id
         if version_id:
             params["versionId"] = version_id
         if start_date:
@@ -261,7 +266,7 @@ def _parse_worker_job(data: dict) -> WorkerJob:
         versionTag=data["versionTag"],
         createdBy=data["createdBy"],
         createdByUserName=data["createdByUserName"],
-        tenantId=data["tenantId"],
+        tenantPublicId=data["tenantPublicId"],
         tenantName=data.get("tenantName"),
         status=data["status"],
         machineType=data["machineType"],
