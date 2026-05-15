@@ -2,8 +2,9 @@ from __future__ import annotations
 
 # Centralized dark / light stylesheets for the NikaPlanet dock panel.
 #
-# Dark palette follows the "Cosmic Cartographer" design system (DESIGN.md).
-# Light palette mirrors the capabilities-mobile mockup.
+# Palettes track the NIKA Design System Plum-Dark (canonical brand dark) and
+# Plum-Light (canonical brand default) themes — oklch tokens converted to
+# sRGB hex. See github.com/NikaGeospatial/nika-design-system.
 
 import os as _os
 import tempfile as _tempfile
@@ -45,50 +46,54 @@ def _get_arrow_paths(c: dict) -> tuple[str, str]:
 
 # ── colour tokens ──────────────────────────────────────────────────────
 
+# NIKA Plum-Dark — deep aubergine paper, warm cream ink, lime accent.
 DARK = {
-    "bg":               "#003646",
-    "surface":          "#002d3b",
-    "surface_low":      "#003d50",
-    "surface_high":     "#0a4d5e",
-    "surface_highest":  "#165c6e",
-    "on_surface":       "#d4e5f0",
-    "on_surface_dim":   "#6a8a9a",
-    "primary":          "#d6ff5a",
-    "primary_grad_end": "#e2ff8a",
-    "primary_dark":     "#6b8f00",
-    "primary_hover":    "#e8ffaa",
-    "accent":           "#d6ff5a",
-    "card_bg":          "#003d50",
-    "card_border":      "rgba(63,90,80,0.20)",
-    "text":             "#e8ecf2",
-    "text_dim":         "#6a8a9a",
-    "divider":          "rgba(214,255,90,0.25)",
-    "btn_outline_fg":   "#d4e5f0",
-    "btn_outline_bdr":  "rgba(63,90,80,0.35)",
-    "notice":           "#ffa94d",
+    "bg":               "#0e0511",  # bg
+    "surface":          "#1e1021",  # bg-2 (cards / surface)
+    "surface_low":      "#1e1021",  # bg-2
+    "surface_high":     "#2d1d31",  # bg-3
+    "surface_highest":  "#3d2b41",  # bg-4
+    "on_surface":       "#f5f2e7",  # ink (warm cream)
+    "on_surface_dim":   "#817683",  # ink-3
+    "primary":          "#abf051",  # accent (lime / chartreuse)
+    "primary_grad_end": "#cccd00",
+    "primary_dark":     "#203501",  # accent-soft
+    "primary_hover":    "#b8fe60",
+    "on_primary":       "#0e0511",  # text on lime — deep plum
+    "accent":           "#abf051",
+    "card_bg":          "#1e1021",
+    "card_border":      "rgba(48,35,51,0.65)",  # rule
+    "text":             "#f5f2e7",
+    "text_dim":         "#817683",
+    "divider":          "rgba(171,240,81,0.28)",
+    "btn_outline_fg":   "#bcb7ab",  # ink-2
+    "btn_outline_bdr":  "rgba(48,35,51,0.65)",
+    "notice":           "#e1791b",  # warn
 }
 
+# NIKA Plum-Light — pale lilac paper, deep aubergine ink, brass accent.
 LIGHT = {
-    "bg":               "#f5f6f8",
+    "bg":               "#fbf9fc",
     "surface":          "#ffffff",
-    "surface_low":      "#f0f1f3",
-    "surface_high":     "#e8eaed",
-    "surface_highest":  "#dadce0",
-    "on_surface":       "#1a1a1a",
-    "on_surface_dim":   "#6b7280",
-    "primary":          "#4a7a00",
-    "primary_grad_end": "#6b9f00",
-    "primary_dark":     "#003646",
-    "primary_hover":    "#8fbf30",
-    "accent":           "#4a7a00",
+    "surface_low":      "#f4f0f5",  # bg-2
+    "surface_high":     "#ece5ed",
+    "surface_highest":  "#dcd4de",
+    "on_surface":       "#170d19",  # ink (deep aubergine)
+    "on_surface_dim":   "#807683",  # ink-3
+    "primary":          "#eba941",  # accent (brass)
+    "primary_grad_end": "#f0ba59",
+    "primary_dark":     "#d79628",
+    "primary_hover":    "#d79628",
+    "on_primary":       "#170d19",  # text on brass — deep aubergine
+    "accent":           "#eba941",
     "card_bg":          "#ffffff",
-    "card_border":      "rgba(0,0,0,0.10)",
-    "text":             "#1a1a1a",
-    "text_dim":         "#6b7280",
-    "divider":          "rgba(74,122,0,0.15)",
-    "btn_outline_fg":   "#1a1a1a",
-    "btn_outline_bdr":  "rgba(0,0,0,0.18)",
-    "notice":           "#b8540a",
+    "card_border":      "rgba(23,13,25,0.10)",
+    "text":             "#170d19",
+    "text_dim":         "#807683",
+    "divider":          "rgba(235,169,65,0.22)",
+    "btn_outline_fg":   "#170d19",
+    "btn_outline_bdr":  "rgba(23,13,25,0.18)",
+    "notice":           "#b75f0b",
 }
 
 
@@ -155,6 +160,15 @@ def _stylesheet(c: dict) -> str:
 }}
 
 /* ── login page ────────────────────────────────────────────────────── */
+#npLogo {{
+    color: {c["primary"]};
+    font-size: 22pt;
+    font-weight: 600;
+}}
+#npLogoDivider {{
+    background-color: {c["primary"]};
+    border: none;
+}}
 #npHeading {{
     color: {c["text"]};
     font-size: 16pt;
@@ -167,7 +181,7 @@ def _stylesheet(c: dict) -> str:
 #npSignIn {{
     background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
         stop:0 {c["primary"]}, stop:1 {c["primary_grad_end"]});
-    color: {c["bg"]};
+    color: {c["on_primary"]};
     border: none;
     border-radius: 8px;
     font-size: 10pt;
@@ -308,7 +322,7 @@ def _stylesheet(c: dict) -> str:
 }}
 #npVerBadge {{
     background-color: {c["primary"]};
-    color: {c["bg"]};
+    color: {c["on_primary"]};
     border-radius: 4px;
     font-size: 8pt;
     font-weight: 700;
@@ -403,7 +417,7 @@ def _stylesheet(c: dict) -> str:
     background-color: {c["surface_low"]};
     color: {c["text"]};
     selection-background-color: {c["primary"]};
-    selection-color: {c["bg"]};
+    selection-color: {c["on_primary"]};
 }}
 #npRunCheckbox {{
     color: {c["text"]};
@@ -424,7 +438,7 @@ def _stylesheet(c: dict) -> str:
 #npSubmitRunBtn {{
     background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
         stop:0 {c["primary"]}, stop:1 {c["primary_grad_end"]});
-    color: {c["bg"]};
+    color: {c["on_primary"]};
     border: none;
     border-radius: 8px;
     font-size: 10pt;
@@ -444,7 +458,7 @@ def _stylesheet(c: dict) -> str:
 }}
 #npVersionBadge {{
     background-color: {c["primary"]};
-    color: {c["bg"]};
+    color: {c["on_primary"]};
     border-radius: 4px;
     font-size: 9pt;
     font-weight: 700;

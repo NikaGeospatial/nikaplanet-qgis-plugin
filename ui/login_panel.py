@@ -159,20 +159,16 @@ class LoginPanel(QDockWidget):
         )
 
         # logo
-        logo = QLabel()
+        logo = QLabel("\U0001f6f0\ufe0f  NikaPlanet")
+        logo.setObjectName("npLogo")
         logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        logo.setTextFormat(Qt.TextFormat.RichText)
-        logo.setText(
-            '<span style="font-size:22pt; font-weight:600; color:#d6ff5a;">'
-            "\U0001f6f0\ufe0f  NikaPlanet</span>"
-        )
         lay.addWidget(logo)
         lay.addSpacing(16)
 
-        # teal divider
+        # accent divider
         divider = QFrame()
+        divider.setObjectName("npLogoDivider")
         divider.setFixedSize(40, 2)
-        divider.setStyleSheet("background-color: #d6ff5a;")
         lay.addWidget(divider, alignment=Qt.AlignmentFlag.AlignCenter)
         lay.addSpacing(20)
 
