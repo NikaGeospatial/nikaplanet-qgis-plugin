@@ -1,4 +1,4 @@
-"""HTTP client for the Worker Jobs API (spec 2026-04-28).
+"""HTTP client for the Worker Jobs API (spec 2026-05-11).
 
 Implements: prepare, submit, cancel, get job, list jobs,
             get log URL, list outputs, download output file.
@@ -7,6 +7,7 @@ Implements: prepare, submit, cancel, get job, list jobs,
 from __future__ import annotations
 
 import json
+import urllib.parse
 import urllib.request
 from urllib.error import HTTPError
 
@@ -69,6 +70,19 @@ class WorkerJobsClient:
             except (json.JSONDecodeError, ValueError):
                 detail = {"error": raw}
             raise ApiError(exc.code, detail) from None
+
+    # ── List Workers by Tenant ────────────────────────────────────
+
+    def list_workers_for_tenant(self, tenant_public_id: str) -> list[dict]:
+        """GET /api/workers/tenants/{tenantPublicId} — flat list of workers.
+
+        Unwraps the standard ``{ status, data }`` envelope (2026-05-11).
+        """
+        safe_id = urllib.parse.quote(tenant_public_id, safe="")
+        payload = self._request("GET", f"/api/workers/tenants/{safe_id}")
+        if isinstance(payload, dict):
+            return payload.get("data") or []
+        return payload or []
 
     # ── 1. Prepare Job ────────────────────────────────────────────
 
@@ -268,6 +282,8 @@ def _parse_worker_job(data: dict) -> WorkerJob:
         createdByUserName=data["createdByUserName"],
         tenantPublicId=data["tenantPublicId"],
         tenantName=data.get("tenantName"),
+        billingTenantPublicId=data.get("billingTenantPublicId"),
+        billingTenantName=data.get("billingTenantName"),
         status=data["status"],
         machineType=data["machineType"],
         inputParams=data.get("inputParams"),

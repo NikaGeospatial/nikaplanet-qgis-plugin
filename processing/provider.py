@@ -2,7 +2,6 @@ from __future__ import annotations
 
 # QgsProcessingProvider
 import json
-import urllib.request
 
 from qgis.core import QgsProcessingProvider, QgsMessageLog, Qgis
 from qgis.PyQt.QtGui import QIcon
@@ -11,9 +10,7 @@ from .sample_algorithm import ExampleProcessingAlgorithm
 from .remote_algorithm import RemoteAlgorithm
 from ..cloud.auth import AuthManager
 from ..cloud.client import WorkerJobsClient
-from ..util.http import safe_urlopen
 from ..util.messages import PLUGIN_LOG_TAG
-from ..util.settings import get_control_server_url
 
 
 class NikaPlanetProvider(QgsProcessingProvider):
@@ -71,40 +68,26 @@ class NikaPlanetProvider(QgsProcessingProvider):
                 )
 
     def fetch_remote_tasks(self, tenant_public_id: str | None = None) -> list[dict]:
-        """GET /api/workers?tenantPublicId=… from the control server."""
+        """Fetch the worker catalog for a tenant via ``WorkerJobsClient``."""
         tid = tenant_public_id or self._tenant_public_id
         if not tid:
             QgsMessageLog.logMessage("No tenantPublicId available — skipping remote fetch", PLUGIN_LOG_TAG, Qgis.Warning)
             return []
-        url = f"{get_control_server_url()}/api/workers?tenantPublicId={tid}"
-        QgsMessageLog.logMessage(f"Fetching remote tasks from {url}", PLUGIN_LOG_TAG, Qgis.Info)
-        req = urllib.request.Request(url, method = "GET")
-        if self._auth:
-            token = self._auth.ensure_valid_token()
-            if token:
-                req.add_header("Authorization", f"Bearer {token}")
-                QgsMessageLog.logMessage(f"Auth token attached (len={len(token)})", PLUGIN_LOG_TAG, Qgis.Info)
-            else:
-                QgsMessageLog.logMessage("No valid auth token available", PLUGIN_LOG_TAG, Qgis.Warning)
-        else:
-            QgsMessageLog.logMessage("No AuthManager configured", PLUGIN_LOG_TAG, Qgis.Warning)
+        if not self._client:
+            QgsMessageLog.logMessage("No WorkerJobsClient configured", PLUGIN_LOG_TAG, Qgis.Warning)
+            return []
         try:
-            with safe_urlopen(req, timeout=10) as resp:
-                status = resp.status
-                raw = resp.read()
-                QgsMessageLog.logMessage(f"Response status={status}, body length={len(raw)}", PLUGIN_LOG_TAG, Qgis.Info)
-                QgsMessageLog.logMessage(f"Raw response: {raw.decode('utf-8', errors='replace')}", PLUGIN_LOG_TAG, Qgis.Info)
-                tasks = json.loads(raw)
-                QgsMessageLog.logMessage(f"Parsed {len(tasks)} remote task(s)", PLUGIN_LOG_TAG, Qgis.Info)
-                for i, t in enumerate(tasks):
-                    QgsMessageLog.logMessage(
-                        f"  worker[{i}]: {json.dumps(t, default=str)}",
-                        PLUGIN_LOG_TAG, Qgis.Info,
-                    )
-                return self._flatten_workers(tasks)
+            tasks = self._client.list_workers_for_tenant(tid)
+            QgsMessageLog.logMessage(f"Fetched {len(tasks)} worker(s) for tenant {tid}", PLUGIN_LOG_TAG, Qgis.Info)
+            for i, t in enumerate(tasks):
+                QgsMessageLog.logMessage(
+                    f"  worker[{i}]: {json.dumps(t, default=str)}",
+                    PLUGIN_LOG_TAG, Qgis.Info,
+                )
+            return self._flatten_workers(tasks)
         except Exception as exc:
             QgsMessageLog.logMessage(
-                f"Could not fetch remote tasks from {url}: {exc}",
+                f"Could not fetch workers for tenant {tid}: {exc}",
                 PLUGIN_LOG_TAG, Qgis.Warning,
             )
             return []

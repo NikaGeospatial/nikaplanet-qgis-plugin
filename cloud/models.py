@@ -1,4 +1,4 @@
-"""Data models for the Worker Jobs API (spec 2026-04-28)."""
+"""Data models for the Worker Jobs API (spec 2026-05-11)."""
 
 from __future__ import annotations
 
@@ -92,6 +92,11 @@ class WorkerJob:
     machineType: str
     createdAt: str
     tenantName: Optional[str] = None
+    # Billing tenant — the tenant charged for this run. Equals tenant* for
+    # TEAM workers; differs only when a PUBLIC worker is run cross-tenant
+    # (since 2026-05-11). May be omitted by older server builds.
+    billingTenantPublicId: Optional[str] = None
+    billingTenantName: Optional[str] = None
     inputParams: Optional[list[dict]] = None
     exitCode: Optional[int] = None
     exitFailureReason: Optional[str] = None

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+from dataclasses import asdict
 
 from qgis.PyQt.QtWidgets import (
     QWidget,
@@ -659,33 +660,7 @@ class WorkersPage(QWidget):
     def _fetch_history(self, params: dict):
         try:
             jobs = self._client.list_jobs(**params)
-            # Send raw dicts to main thread (WorkerJob dataclasses aren't
-            # needed — from_history works with dicts).
-            self._history_loaded.emit([
-                {
-                    "jobId": j.jobId,
-                    "workerId": j.workerId,
-                    "workerName": j.workerName,
-                    "workerVersionId": j.workerVersionId,
-                    "versionTag": j.versionTag,
-                    "createdBy": j.createdBy,
-                    "createdByUserName": j.createdByUserName,
-                    "tenantPublicId": j.tenantPublicId,
-                    "tenantName": j.tenantName,
-                    "status": j.status,
-                    "machineType": j.machineType,
-                    "inputParams": j.inputParams,
-                    "exitCode": j.exitCode,
-                    "exitFailureReason": j.exitFailureReason,
-                    "logPreview": j.logPreview,
-                    "hasOutputFiles": j.hasOutputFiles,
-                    "jobSubmittedAt": j.jobSubmittedAt,
-                    "jobCancelledAt": j.jobCancelledAt,
-                    "jobEndedAt": j.jobEndedAt,
-                    "createdAt": j.createdAt,
-                }
-                for j in jobs
-            ])
+            self._history_loaded.emit([asdict(j) for j in jobs])
         except Exception as exc:
             QgsMessageLog.logMessage(
                 f"Failed to fetch job history: {exc}",
